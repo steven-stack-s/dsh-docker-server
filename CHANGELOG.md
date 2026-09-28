@@ -6,12 +6,20 @@
 
 ## [Unreleased]
 
+## [v0.5.5-dsh-0.1.7-rc.2] - 2026-09-28
+
 ### Changed
 - **项目改名：`dsh-docker` → `dsh-docker-server`**。GitHub 仓库、ghcr.io 镜像名、clone 地址与
   文档中的部署目录示例全部同步。GitHub 对旧仓库名会**自动重定向**，旧 clone 地址与旧 tag 仍可用；
   但**镜像名不会重定向** —— 旧部署的 `DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker:<tag>` 需改为
   `ghcr.io/steven-stack-s/dsh-docker-server:<tag>`（或直接删掉 `DSH_IMAGE` 走 `.env.example` 新默认值）。
   本文件与 `issues/` 中更早条目里的 `dsh-docker` 字样为**历史记录，保持不变**。
+- 镜像锁定的 dsh 版本**不变**（仍为 `ARG DSH_VERSION=0.1.7-rc.2`）；本版仅改名，无功能变更。
+
+### Notes
+- 本版是**新镜像路径 `ghcr.io/steven-stack-s/dsh-docker-server` 的首个发布**。在此之前该路径无任何
+  镜像包，用默认 `:latest` 执行 `docker compose up -d` 会因 pull 不到而硬失败（compose 刻意不提供
+  本地构建回退）。升级现有部署前请先确认本 tag 的镜像已构建完成。
 
 ## [v0.5.4-dsh-0.1.7-rc.2] - 2026-09-25
 
