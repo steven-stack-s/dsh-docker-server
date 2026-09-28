@@ -103,6 +103,6 @@ jobs:
             fi
           done
           echo "==== 完成：新建 $created 个，更新 $updated 个 ===="
-          echo "查看：https://github.com/steven-stack-s/dsh-docker/releases"
+          echo "查看：https://github.com/steven-stack-s/dsh-docker-server/releases"
           # 有任一失败即让 job 变红，杜绝"绿灯假成功"
           [ "$fail" -eq 0 ] || { echo "::error::有 release 未能创建/更新，见上方 error"; exit 1; }

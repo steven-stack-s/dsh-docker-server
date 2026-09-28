@@ -116,7 +116,7 @@ docker exec dsh dsh --version
 ```
 
 > Rebuild the image when: the base environment changes (Node major version / system dependencies), or you want to update the dsh base version baked into the seed:
-> `docker build --build-arg DSH_VERSION=<version> --build-arg APT_MIRROR=mirrors.aliyun.com -t <your-repo>/dsh-docker:<version> .` and update `DSH_IMAGE` in `.env`.
+> `docker build --build-arg DSH_VERSION=<version> --build-arg APT_MIRROR=mirrors.aliyun.com -t <your-repo>/dsh-docker-server:<version> .` and update `DSH_IMAGE` in `.env`.
 >
 > ⚠️ A new image does **not** update the dsh inside the `/opt/dsh` volume either (the seed is copied only
 > when the volume holds no dsh at all — see the top of this chapter), so after rebuilding the image you

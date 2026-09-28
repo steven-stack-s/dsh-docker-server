@@ -8,7 +8,7 @@
 #
 # 需要：docker。镜像默认用本地构建，也可 IMG=ghcr.io/... 指定现成镜像。
 #   sh scripts/t/e2e-container-selftest.sh
-#   IMG=dsh-docker:latest sh scripts/t/e2e-container-selftest.sh
+#   IMG=dsh-docker-server:latest sh scripts/t/e2e-container-selftest.sh
 #
 # 断言链路：
 #   1) 首次启动 -> healthy（seed 复制 + socat + 监督循环）
@@ -21,7 +21,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-IMG="${IMG:-dsh-docker:e2e-selftest}"
+IMG="${IMG:-dsh-docker-server:e2e-selftest}"
 NAME="dsh-e2e-$$"
 PORT="${PORT:-39080}"
 WORK=$(mktemp -d)

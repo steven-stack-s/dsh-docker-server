@@ -13,7 +13,7 @@ Deploy DeepSeek Harness (DSH) on any Docker environment.
 ## 2. Directory Structure
 
 ```
-dsh-docker/
+dsh-docker-server/
 ├── docker-compose.yml   # deployment config
 ├── Dockerfile           # base image — build it yourself or use the ghcr.io image directly
 ├── scripts/             # runtime code (entrypoint / rescue CLI / shared library / probes)
@@ -25,8 +25,8 @@ dsh-docker/
 ### 3.1 Clone the Repo and Configure
 
 ```bash
-git clone https://github.com/steven-stack-s/dsh-docker.git
-cd dsh-docker
+git clone https://github.com/steven-stack-s/dsh-docker-server.git
+cd dsh-docker-server
 
 cp .env.example .env
 # edit .env; at minimum fill in:

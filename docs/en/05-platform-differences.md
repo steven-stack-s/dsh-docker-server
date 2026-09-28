@@ -26,12 +26,12 @@ systemctl restart docker
 > is installed — after login the Host is normalized to loopback (see [02](02-authentication-remote-access.md)).
 
 - **Install**: Package Center → search and install "Container Manager" (Docker's official package); includes compose support.
-- **Paths**: Shared folders are mounted at `/volume1/...`; create a deployment directory inside a shared folder (e.g. `/volume1/docker/dsh-docker/`), and write absolute paths into `.env`:
+- **Paths**: Shared folders are mounted at `/volume1/...`; create a deployment directory inside a shared folder (e.g. `/volume1/docker/dsh-docker-server/`), and write absolute paths into `.env`:
 
   ```
-  PROGRAMS_DIR=/volume1/docker/dsh-docker/programs
-  DSH_DATA_DIR=/volume1/docker/dsh-docker/dsh
-  WORKSPACE_DIR=/volume1/docker/dsh-docker/workspace
+  PROGRAMS_DIR=/volume1/docker/dsh-docker-server/programs
+  DSH_DATA_DIR=/volume1/docker/dsh-docker-server/dsh
+  WORKSPACE_DIR=/volume1/docker/dsh-docker-server/workspace
   ```
 
 - **Commands**: Log in via SSH and run `docker compose ...`; you can also import `docker-compose.yml` in the "Project" tab of the Container Manager GUI.
@@ -47,7 +47,7 @@ systemctl restart docker
 ## 4. QNAP QTS / QuTS hero
 
 - **Install**: Install "Container Station" from App Center; enable SSH (Control Panel → Network & File Services → Telnet/SSH).
-- **Paths**: Shared folders are at `/share/...`, e.g. `/share/Container/dsh-docker/`.
+- **Paths**: Shared folders are at `/share/...`, e.g. `/share/Container/dsh-docker-server/`.
 - **Commands**: After SSH login, run `docker compose up -d`.
 
 ## 5. Windows / macOS Docker Desktop
@@ -57,9 +57,9 @@ systemctl restart docker
 - **Paths**: Use absolute paths in `.env`; Windows example:
 
   ```
-  PROGRAMS_DIR=D:/docker/dsh-docker/programs
-  DSH_DATA_DIR=D:/docker/dsh-docker/dsh
-  WORKSPACE_DIR=D:/docker/dsh-docker/workspace
+  PROGRAMS_DIR=D:/docker/dsh-docker-server/programs
+  DSH_DATA_DIR=D:/docker/dsh-docker-server/dsh
+  WORKSPACE_DIR=D:/docker/dsh-docker-server/workspace
   ```
 
 - **Ports**: Docker Desktop handles port mapping automatically; access via `http://localhost:3080`.

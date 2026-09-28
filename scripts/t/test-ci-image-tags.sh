@@ -18,7 +18,7 @@ SCRIPT="$HERE/../ci-image-tags.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL-script-missing: $SCRIPT"; exit 1; }
 
 run_case() { # $1=ref_type $2=ref_name
-  REF_TYPE="$1" REF_NAME="$2" REGISTRY=ghcr.io IMAGE_NAME=Steven-Stack-S/dsh-docker sh "$SCRIPT"
+  REF_TYPE="$1" REF_NAME="$2" REGISTRY=ghcr.io IMAGE_NAME=Steven-Stack-S/dsh-docker-server sh "$SCRIPT"
 }
 field() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
 
@@ -43,14 +43,14 @@ out=$(run_case tag v1.0.0-dsh-0.2.0) || { echo 'FAIL-tag4-rc'; exit 1; }
 
 # ---- Br1 ----
 out=$(run_case branch main) || { echo 'FAIL-br1-rc'; exit 1; }
-[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker:main" ] || { echo "FAIL-br1-tags: $out"; exit 1; }
+[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker-server:main" ] || { echo "FAIL-br1-tags: $out"; exit 1; }
 # 分支构建的 dsh 版本改取仓库锁定的 ARG DSH_VERSION（不再跟随 npm latest，见脚本内注释）。
 PINNED=$(sed -n 's/^ARG DSH_VERSION=\(.*\)$/\1/p' "$HERE/../../Dockerfile" | head -n1)
 [ "$(field "$out" dsh_version)" = "$PINNED" ] || { echo "FAIL-br1-dsh: $out (want $PINNED)"; exit 1; }
 
 # ---- Br2：其他分支不得占用 :main ----
 out=$(run_case branch feature/x) || { echo 'FAIL-br2-rc'; exit 1; }
-[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker:branch-feature-x" ] || { echo "FAIL-br2-tags: $out"; exit 1; }
+[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker-server:branch-feature-x" ] || { echo "FAIL-br2-tags: $out"; exit 1; }
 
 # ---- Tag5：dsh 版本必须是三段式（"v0.3.7-dsh-0" 会被 npm 当 0.x 解析）----
 if run_case tag v0.3.7-dsh-0 >/dev/null 2>&1; then echo 'FAIL-tag5-non-semver-dsh-version-accepted'; exit 1; fi
@@ -68,6 +68,6 @@ if run_case tag v0.4.2-dsh0.1.5-rc.2 >/dev/null 2>&1; then echo 'FAIL-tag9-legac
 
 # ---- Br3：分支名里的非法字符必须清洗成合法 Docker tag 字符 ----
 out=$(run_case branch 'weird+branch') || { echo 'FAIL-br3-rc'; exit 1; }
-[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker:branch-weird-branch" ] || { echo "FAIL-br3-tags: $out"; exit 1; }
+[ "$(field "$out" tags)" = "ghcr.io/steven-stack-s/dsh-docker-server:branch-weird-branch" ] || { echo "FAIL-br3-tags: $out"; exit 1; }
 
 echo ALL-PASS

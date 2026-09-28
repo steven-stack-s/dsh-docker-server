@@ -30,9 +30,9 @@ make_fixture() { # $1=目标文件 $2=DSH 版本（shields 已转义形态）
   cat > "$1" <<EOF
 # Fixture
 
-[![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-$2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
-[![License](https://img.shields.io/github/license/steven-stack-s/dsh-docker?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > body
 EOF
@@ -101,7 +101,7 @@ case "$out" in *"would-update"*) : ;; *) echo "FAIL-b8-msg: $out"; exit 1 ;; esa
 
 # ---- B9 不误伤 Release 徽章行里的 v0.4.0-dsh-0.1.5-rc.1 ----
 sh "$SCRIPT" 0.9.9 "$F" >/dev/null 2>&1 || { echo "FAIL-b9-rc"; exit 1; }
-grep -q 'github/v/release/steven-stack-s/dsh-docker?sort=semver&color=5965d8' "$F" \
+grep -q 'github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8' "$F" \
   || { echo "FAIL-b9-release-line-damaged"; exit 1; }
 grep -q 'DeepSeek%20Harness-0.9.9-4aa3ff' "$F" || { echo "FAIL-b9-target-not-updated"; exit 1; }
 # 除徽章外其余内容必须逐字未变

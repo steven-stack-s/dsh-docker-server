@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Changed
+- **项目改名：`dsh-docker` → `dsh-docker-server`**。GitHub 仓库、ghcr.io 镜像名、clone 地址与
+  文档中的部署目录示例全部同步。GitHub 对旧仓库名会**自动重定向**，旧 clone 地址与旧 tag 仍可用；
+  但**镜像名不会重定向** —— 旧部署的 `DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker-server:<tag>` 需改为
+  `ghcr.io/steven-stack-s/dsh-docker-server:<tag>`（或直接删掉 `DSH_IMAGE` 走 `.env.example` 新默认值）。
+  本文件与 `issues/` 中更早条目里的 `dsh-docker` 字样为**历史记录，保持不变**。
+
 ## [v0.5.4-dsh-0.1.7-rc.2] - 2026-09-25
 
 ### Changed
@@ -477,7 +484,7 @@
 - 容器内部署（程序装在卷上）无需重建镜像：
   `docker exec dsh npm install -g @deepseek-ai/dsh@0.1.6-alpha.1 && docker restart dsh`。
   注意：**不能**用 `@latest` 或 `@alpha` 之外的简写，前者根本拿不到 0.1.6。
-- 用镜像部署则改用新 tag：`DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker:v0.4.4-dsh-0.1.6-alpha.1`
+- 用镜像部署则改用新 tag：`DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker-server:v0.4.4-dsh-0.1.6-alpha.1`
   （或继续跟随 `:latest`）。
 - **会话数据格式**：0.1.5 → 0.1.6 可能包含不可回读的数据迁移。按 §备份 惯例，升级前请备份
   程序 / 数据 / 工作区三个卷，以便按 docs/zh-CN/03-升级与维护.md 回滚。
@@ -561,7 +568,7 @@
 
 ### 升级注意（0.1.5-rc.1 → 0.1.5-rc.2）
 - 容器内部署（程序装在卷上）无需重建镜像：`docker exec dsh npm install -g @deepseek-ai/dsh@0.1.5-rc.2 && docker restart dsh`。
-- 用镜像部署则改用新 tag：`DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker:v0.4.1-dsh-0.1.5-rc.2`（或继续跟随 `:latest`）。
+- 用镜像部署则改用新 tag：`DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker-server:v0.4.1-dsh-0.1.5-rc.2`（或继续跟随 `:latest`）。
 - 同一 minor 内的预发布迭代，仍建议按惯例在升级前备份整个部署目录（程序 / 数据 / 工作区三个卷），以便按 docs/zh-CN/03-升级与维护.md 回滚。
 
 ## [v0.4.0-dsh-0.1.5-rc.1] - 2026-09-12

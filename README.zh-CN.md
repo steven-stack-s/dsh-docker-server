@@ -1,12 +1,12 @@
 [English](README.md) | **简体中文**
 
-# DSH Docker 部署
+# DSH Docker Server 部署
 
-[![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker/releases)
-[![镜像构建](https://github.com/steven-stack-s/dsh-docker/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker/actions/workflows/docker-image.yml)
-[![GHCR 镜像](https://img.shields.io/badge/ghcr.io-dsh--docker-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker/pkgs/container/dsh-docker)
+[![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
+[![镜像构建](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml)
+[![GHCR 镜像](https://img.shields.io/badge/ghcr.io-dsh--docker--server-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker-server/pkgs/container/dsh-docker-server)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.1.7--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
-[![MIT 许可证](https://img.shields.io/github/license/steven-stack-s/dsh-docker?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker/blob/main/LICENSE)
+[![MIT 许可证](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > 在**任意 Docker 环境**（Linux 服务器 / NAS / 云主机 / Docker Desktop）一键部署
 > [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）——DeepSeek 官方的 AI 编程 Agent 框架（Web UI + CLI）。
@@ -36,7 +36,7 @@
 
 ```bash
 # 1. 拉取仓库并配置
-git clone https://github.com/steven-stack-s/dsh-docker.git && cd dsh-docker
+git clone https://github.com/steven-stack-s/dsh-docker-server.git && cd dsh-docker-server
 cp .env.example .env            # 编辑 .env，填入 DEEPSEEK_API_KEY（其余可保持默认）
 
 # 2. 启动（首次启动从镜像内 seed 复制 DSH，秒级就绪）
@@ -98,7 +98,7 @@ docker compose up -d
 
 - 镜像构建时预装 dsh+pnpm 到 seed（`/opt/dsh-seed`），运行环境含 `node:24-slim` + git + ca-certificates + tzdata + socat + openssh-client
 - 首次启动 `scripts/entrypoint.sh` 把 seed 复制到挂载卷 `/opt/dsh`（秒级、离线、版本固定），pnpm 随 seed 一起就位
-- 自定义构建：`docker build --build-arg DSH_VERSION=<版本> --build-arg APT_MIRROR=mirrors.aliyun.com -t dsh-docker:<版本> .`
+- 自定义构建：`docker build --build-arg DSH_VERSION=<版本> --build-arg APT_MIRROR=mirrors.aliyun.com -t dsh-docker-server:<版本> .`
 - 三个持久化卷：`./programs`（DSH 程序本体）、`./dsh`（DSH_HOME 用户数据）、`./workspace`（agent 工作区）
 
 ---
