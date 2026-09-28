@@ -9,7 +9,7 @@
 ### Changed
 - **项目改名：`dsh-docker` → `dsh-docker-server`**。GitHub 仓库、ghcr.io 镜像名、clone 地址与
   文档中的部署目录示例全部同步。GitHub 对旧仓库名会**自动重定向**，旧 clone 地址与旧 tag 仍可用；
-  但**镜像名不会重定向** —— 旧部署的 `DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker-server:<tag>` 需改为
+  但**镜像名不会重定向** —— 旧部署的 `DSH_IMAGE=ghcr.io/steven-stack-s/dsh-docker:<tag>` 需改为
   `ghcr.io/steven-stack-s/dsh-docker-server:<tag>`（或直接删掉 `DSH_IMAGE` 走 `.env.example` 新默认值）。
   本文件与 `issues/` 中更早条目里的 `dsh-docker` 字样为**历史记录，保持不变**。
 
