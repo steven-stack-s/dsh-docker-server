@@ -127,10 +127,10 @@ Host :3080 ──> container socat(0.0.0.0:3080) ──> dsh web(127.0.0.1:3081)
 - **Default security posture** (since v0.4.6): the container runs as a **non-root** `node` user
   (uid 1000, the entrypoint chowns the volumes on first boot, then `setpriv` drops privileges),
   with `cap_drop:[ALL]` (4 minimal caps kept), a read-only root FS (`read_only` + `tmpfs /tmp`) and
-  `no-new-privileges`. The web process and plugins no longer run as root. Because the web profile's
-  HMR relies on a native addon that is unavailable under a read-only root FS, the entrypoint launches
-  the profile with a `--patch` overlay that disables its `hmr` row (config changes take effect on
-  `docker restart`, no live hot-reload).
+  `no-new-privileges`. The web process and plugins no longer run as root. Native-addon loading under
+  a read-only root FS is fixed by two layers: `NARB_DISABLE_NATIVE_CACHE=1` (the binding loads from
+  the executable volume `/opt/dsh`) and `tmpfs /tmp:…,exec`. **HMR is no longer touched by this
+  project** — it fully follows the dsh default (since v0.6.1).
   See the "Security hardening" section in [docs/en/07-environment-variables.md](docs/en/07-environment-variables.md).
 ---
 

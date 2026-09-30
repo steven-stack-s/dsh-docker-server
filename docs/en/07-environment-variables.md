@@ -85,19 +85,28 @@ Since v0.4.6 the image runs as a **non-root** user and tightens capabilities + r
   `NPM_CONFIG_CACHE` defaults to `/opt/dsh/.npm-cache` (inside a writable volume, created and `chown`ed
   to the run user on first boot; usable by both root `docker exec npm` and the node user) so
   `npm install -g` upgrades and rescue cleaning still work.
-- **HMR disabled at launch** (via a `--patch` overlay): HMR relies on a native addon
-  (`node-addon-require-builtin`) that may have no usable binding under a read-only root FS; dsh then
-  throws `--expose-internals is required for HMR service` and crashes. Config changes inside the
-  container are also meant to take effect through `docker restart`. The entrypoint therefore injects
-  `--patch /opt/dsh-rescue/hmr-off.yml` (overlay: `scripts/hmr-off.yml`) into **every** launch
-  command, turning off the base bundle's `hmr` row.
-  **Mechanism changed 2026-09-18**: DSH 0.1.6-alpha.2 removed the profile manifest's `patchReload`
-  field (from then on it is **silently ignored**) and now enables HMR from the `hmr` row whenever a
-  launcher provides a profile context — so the earlier "rewrite `patchReload` to `startup` on first
-  boot" approach **no longer works** on alpha.2 (HMR would in fact stay on). Moving the switch to a
-  launch argument makes it independent of any version-specific manifest field, so in-container upgrades
-  or rollbacks of dsh cannot break it. If you truly need live hot-reload in production, disable
-  `read_only` and drop that overlay.
+- **Native addon & HMR — this project no longer touches HMR.** HMR relies on the loader hook
+  provided by a native addon (`node-addon-require-builtin`); if that binding fails to load under a
+  read-only root FS, dsh throws `--expose-internals is required for HMR service` and crashes (older
+  versions did exactly that). **That root cause is fixed by two other layers, not by the HMR switch**:
+  the Dockerfile's `NARB_DISABLE_NATIVE_CACHE=1` (the binding loads from the executable volume
+  `/opt/dsh` instead) and `tmpfs /tmp:size=128m,exec` in `docker-compose.yml` (Docker's tmpfs
+  defaults to `noexec`).
+  Since **v0.6.1** this project injects **no `--patch` overlay to disable HMR** — HMR fully follows
+  the dsh default (on for the `web` profile). Two findings drove that decision:
+  ① measured on dsh 0.2.0-rc.2, starting **without** the overlay is completely normal — no
+  `--expose-internals` error; and
+  ② more importantly, the process shows **zero inotify handles either way** — HMR's chokidar watcher
+  never started in this environment. In other words the disabling layer was **a no-op all along**,
+  while costing this project a "turns off an upstream feature" patch and, worse, **masking the real
+  signal that the binding is unavailable** (the same root cause makes third-party plugins fail with
+  `ERR_MODULE_NOT_FOUND`).
+  > ⚠ So if your **own compose** overrides those two fixes (e.g. drops `tmpfs … ,exec` or changes
+  > `NARB_DISABLE_NATIVE_CACHE`), verify the binding still loads — otherwise the symptom is either a
+  > failing dsh boot or every third-party plugin failing to load. The historical implementation lives
+  > in git history (`scripts/hmr-off.yml` was deleted). Note also that as of 0.1.6-alpha.2 the profile
+  > manifest's `patchReload` field was removed upstream, so **do not** try to disable HMR through that
+  > field (`test-dockerfile-hygiene.sh` guards against it).
 - **NAS / kernel caveat**: `cap_drop:[ALL]` may affect in-volume permissions and hard links
   (rescue snapshot `hardlink` uses `cp -al`) on some NAS storage backends (NFS / certain storage pools).
   Verified in this repo's e2e sandbox; before deploying to a target platform, run

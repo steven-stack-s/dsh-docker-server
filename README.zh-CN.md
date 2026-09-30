@@ -125,8 +125,9 @@ docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 - **默认安全姿态**（v0.4.6 起）：容器以**非 root** 的 `node` 用户（uid 1000）运行（入口脚本首启 chown
   挂载卷后 `setpriv` 降权），并启用 `cap_drop:[ALL]`（保留 4 个最小能力）、根 FS 只读
   （`read_only` + `tmpfs /tmp`）、`no-new-privileges`。上层 web 进程/插件不再以 root 运行。
-  因 web profile 的 HMR 依赖的 native addon 在只读根 FS 下不可用，入口脚本启动时以 `--patch`
-  叠加层关闭其 `hmr` 条目（改配置后 `docker restart` 生效，不实时热重载）。
+  只读根 FS 下原生绑定（native addon）的加载问题由两层修复：`NARB_DISABLE_NATIVE_CACHE=1`
+  （绑定改从可执行卷 `/opt/dsh` 加载）与 `tmpfs /tmp:…,exec`。**HMR 不再由本项目干预**，
+  完全跟随 dsh 默认（v0.6.1 起）。
   详见 [docs/zh-CN/07-环境变量速查.md](docs/zh-CN/07-环境变量速查.md) 的「安全加固」节。
 
 ---

@@ -15,10 +15,10 @@
 # 在函数内做全部状态初始化后进入监督循环，永不以 return 结束（内部 exec/exit）。
 # ============================================================================
 
-# HMR_OFF_PATCH 由 entrypoint 解析（关闭 HMR 的 --patch 参数，见 scripts/hmr-off.yml）。
-# 本文件声明须兼容 set -u，故对"调用方未提供"的空值兜底：否则独立 source（单测、精简
-# 镜像里的降级路径）会在 set -u 下以 "parameter not set" 直接终止监督循环。
-HMR_OFF_PATCH="${HMR_OFF_PATCH:-}"
+# 【2026-09-30 移除】原先这里从 entrypoint 接收 HMR_OFF_PATCH（关闭 HMR 的 --patch 参数）
+# 并注入到每条 dsh 启动命令中。现已不再干预 HMR —— 理由见 entrypoint.sh 里
+# 「移除：曾在此把 profile 的 HMR 关掉」注释（简述：崩溃根因由 NARB/tmpfs 两层修复，
+# 且实测该叠加层一直是零效果，反而掩盖了"绑定不可用"这个本该暴露的信号）。
 
 # ===== 归因自愈辅助（规范 §6；本环境仅静态校验，真机行为以宿主机 e2e 为准）=====
 # 注意：rescue_ts / rescue_budget_read / rescue_budget_write 现由 librescue.sh 提供
@@ -78,7 +78,7 @@ rescue_start_child() {
     # 证据链 tee 原样转发（stdout/stderr 都在里面）；代价是"正常 stdout"不落盘 —— 而崩溃根因
     # 几乎总在 stderr，进救生舱要看的就是它。外层打不开文件时 dash 会让命令根本不执行并返回
     # 失败（下方 if 因此判假），由 else 兜底。
-    if { ( exec dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS 1>&3 2>&4 ) & } \
+    if { ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS 1>&3 2>&4 ) & } \
         4>"$LASTBOOT_FILE" 2>/dev/null; then
       child=$!
     else
@@ -86,7 +86,7 @@ rescue_start_child() {
       # 【为何是丢弃而不是 tee】tee 会把读取端挂在**同一个** fifo 上：两读端会瓜分字节，
       # 证据 dsh.log 变成随机半份、归因能力静默失效。
       mkdir -p "$RESCUE_DIR" 2>/dev/null || true
-      ( exec dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS >&3 2>&1 ) &
+      ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS >&3 2>&1 ) &
       child=$!
     fi
   else
@@ -94,10 +94,10 @@ rescue_start_child() {
     # 关闭且此前没有任何救援动作），而 dash 在重定向打不开文件时会让命令**根本不执行** ——
     # 监督循环会一直空转到耗尽预算。故先尽力建目录；建不出来（只读卷）则退回纯容器日志。
     if mkdir -p "$RESCUE_DIR" 2>/dev/null; then
-      dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS \
+      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS \
         >"$LASTBOOT_FILE" 2>&1 &
     else
-      dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS &
+      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS &
     fi
     child=$!
   fi
@@ -323,7 +323,7 @@ rescue_supervise() {
   # 时无法监督 -> 降级为原始前台 exec，保证慢启动的健康 dsh 不被误杀。
   if [ ! -f "$probe" ]; then
     elog '[entrypoint] probe-ready.js missing; supervision disabled - exec dsh directly'
-    exec dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS
+    exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS
   fi
   # ---- 状态初始化（归因自愈用；本文件由 entrypoint 监督循环 source，须兼容 set -u）----
   EVLOG=''; child=''; tee_pid=''; DIAG_JSON=''

@@ -59,8 +59,9 @@ docker restart dsh
 > if the version it installs is lower than the image seed. For a lasting pin, always go through the image tag.
 >
 > ⚠️ If you do change dsh by hand, **upgrade the image first, then dsh**: the reverse order leaves the
-> intermediate state "new dsh + old entrypoint", and the entrypoint carries the read-only hardening
-> (disabling the profile's HMR; see the hardening section of [07 · Environment variables](07-environment-variables.md)).
+> intermediate state "new dsh + old entrypoint", and the entrypoint carries the first-boot preparation
+> (profile manifest preset, seed sync, rescue tooling wiring — see the hardening section of
+> [07 · Environment variables](07-environment-variables.md)).
 
 ### Always spell out the full version (do not use `latest` / `next`)
 

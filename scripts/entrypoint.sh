@@ -208,8 +208,8 @@ if [ "$(id -u)" = 0 ] && [ "$RUN_USER_ID" != 0 ] && [ -z "${DSH_INIT_DONE:-}" ];
   #    （alpha.1 是硬编码 `disabled: true`，即模块热重载 opt-in。）
   #    因此原先「把 patchReload 从 live 改写成 startup 来关闭 HMR」的做法在 alpha.2 下**已失效**：
   #    该字段被静默忽略，sed 改写成了无人读取的死写入，而 web 的 HMR 实际上变成默认开启。
-  #    关闭 HMR 现改由**启动参数** --patch 注入叠加层实现（见下方 HMR_OFF_PATCH 与
-  #    scripts/hmr-off.yml）：既不碰 manifest，也不碰用户的 cordis.patch.yml。
+  #    2026-09-30 起本项目**不再干预 HMR**（曾经用 --patch 叠加层关掉它，现已移除，
+  #    理由见本文件下方「移除：曾在此把 profile 的 HMR 关掉」注释）——HMR 完全跟随 dsh 默认。
   #    存量 profile 里遗留的 `patchReload` 字段实测**无害**（被忽略、不报错、不影响启动），
   #    故不做 JSON 字段删除 —— sed 摘字段极易留下尾逗号而毁掉 manifest，收益为零。
   #    dsh 的 initProfile 仅在 manifest 不存在时创建，故此处预置后会被 dsh 沿用。
@@ -231,7 +231,7 @@ if [ "$(id -u)" = 0 ] && [ "$RUN_USER_ID" != 0 ] && [ -z "${DSH_INIT_DONE:-}" ];
   }
 }
 PPF
-          elog "[entrypoint]   web profile manifest preset (bundles only; HMR disabled at launch)"
+          elog "[entrypoint]   web profile manifest preset (bundles only)"
         fi
         # profile 目录(含父级 profiles + 新落盘的 manifest + dsh 首启将创建的 node_modules/lifeboat)
         # 归运行用户。必须 chown 整个 /data/dsh/profiles:仅 chown web 子目录会使父级 profiles
@@ -364,35 +364,23 @@ if [ -n "$DSH_TRUSTED_HOSTS" ]; then
   [ -n "$TRUSTED_ARGS" ] || elog '[entrypoint] WARN trusted Host allowlist produced no usable entry (all entries invalid?)'
 fi
 
-# 关闭 profile 的 HMR（read_only 生产加固，由来见 scripts/hmr-off.yml 文件头）。
-# 【为何用启动参数而不是改 profile manifest】DSH 0.1.6-alpha.2 移除了 manifest 的
-# patchReload 字段，HMR 改由 base 组合包的 hmr 条目按 profileContext 自动启用；稳定且
-# 版本无关的关闭方式是在启动器上叠加 patch。--patch 在 0.1.5-rc.2 / 0.1.6-alpha.1 /
-# 0.1.6-alpha.2 上都存在，故容器内升级或回退 dsh 都不会让本条失效——这正是「写 manifest
-# 字段」方案在 alpha.2 上翻车的原因（字段随版本被删，写进去没人读，而门禁还在盯文本）。
-# 仅对加载 dsh-base（因而真有 hmr 条目）的 profile 注入：web 与 lifeboat。其它 profile
-# （如 sdk-minimal）不含该条目，注入只会多打一行 "patch: entry \"hmr\" not found" 的无谓警告。
-HMR_OFF_YML=
-for _c in /opt/dsh-rescue/hmr-off.yml "$HERE/scripts/hmr-off.yml" "$HERE/hmr-off.yml"; do
-  [ -f "$_c" ] && { HMR_OFF_YML="$_c"; break; }
-done
-# 注意：函数在"不注入"分支必须显式 return 0 —— 命令替换的退出码就是赋值语句的退出码，
-# 在 set -e 下返回非零会直接终止 PID1（本文件已有同类真机教训：见 ⑥ 步 setpriv 探测）。
-hmr_off_args() {
-  case "$1" in
-    web|lifeboat)
-      if [ -n "$HMR_OFF_YML" ]; then printf -- '--patch %s' "$HMR_OFF_YML"; fi
-      ;;
-  esac
-  return 0
-}
-HMR_OFF_PATCH=$(hmr_off_args "$RESCUE_PROFILE")
-HMR_OFF_PATCH_LIFEBOAT=$(hmr_off_args lifeboat)
-if [ -n "$HMR_OFF_PATCH" ]; then
-  elog "[entrypoint] HMR disabled via launch overlay: $HMR_OFF_YML"
-elif [ -z "$HMR_OFF_YML" ]; then
-  elog '[entrypoint] WARN hmr-off.yml missing; HMR keeps its default (see docs if read_only is on)'
-fi
+# 【2026-09-30 移除：曾在此把 profile 的 HMR 关掉（--patch hmr-off.yml）】
+# 原先的理由：HMR 依赖原生绑定（node-addon-require-builtin）提供的 loader hook，只读根 FS
+#   下 tmpfs 上 dlopen 失败 → dsh-hmr 抛 "--expose-internals is required" 使启动即崩。
+# 为什么现在可以去掉：
+#   ① 崩溃的**根因**已由另外两层修复 —— Dockerfile 的 `NARB_DISABLE_NATIVE_CACHE=1`
+#      （绑定改从可执行卷原路径加载）与 compose 的 `tmpfs /tmp:…,exec`。关闭 HMR 只是
+#      症状层的保险，不是根因修复；
+#   ② 实测（2026-09-30，0.2.0-rc.2）：**不带**本叠加层启动 dsh web 完全正常，无任何
+#      "--expose-internals" 报错；
+#   ③ 更关键：实测带与不带叠加层的进程 **inotify 句柄数都是 0** —— HMR 的 chokidar
+#      watcher 在这个环境里本来就没启动。也就是说这层关闭**一直是零效果的**，
+#      却让本项目背着一个"关掉上游功能"的补丁，还掩盖了"绑定不可用"这个本该暴露的信号
+#      （同根因还会让第三方插件 ERR_MODULE_NOT_FOUND）。
+# 故按"不干预上游默认行为"处理：不再注入任何 HMR 相关参数，HMR 完全跟随 dsh 默认。
+# 需要恢复时见 git 历史（本文件 + 已删除的 scripts/hmr-off.yml）。
+# 保留的既有约定：profile manifest 的 `patchReload` 字段在 0.1.6-alpha.2 起已被上游删除，
+# 本项目**不得**再靠写该字段来关 HMR（门禁 test-dockerfile-hygiene.sh 仍盯着这一点）。
 
 RESCUE_START_TIMEOUT="${RESCUE_START_TIMEOUT:-120}"
 RESCUE_AUTO="${RESCUE_AUTO:-on}"
@@ -433,7 +421,7 @@ boot_lifeboat() {
   elog "[entrypoint] booting clean lifeboat profile ($reason); no third-party plugins; data preserved"
   rescue_log "lifeboat enter: $reason"
   rescue_init_lifeboat
-  exec dsh --profile lifeboat $HMR_OFF_PATCH_LIFEBOAT --port $PORT_INNER --no-open $TRUSTED_ARGS
+  exec dsh --profile lifeboat --port $PORT_INNER --no-open $TRUSTED_ARGS
 }
 
 if [ "${RESCUE:-0}" = "1" ]; then boot_lifeboat; fi
@@ -478,5 +466,5 @@ if [ -n "$SUPERVISE" ]; then
   rescue_supervise
 else
   elog '[entrypoint] WARN rescue-supervise.sh missing; supervision disabled - exec dsh directly'
-  exec dsh --profile "$RESCUE_PROFILE" $HMR_OFF_PATCH --port $PORT_INNER --no-open $TRUSTED_ARGS
+  exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS
 fi

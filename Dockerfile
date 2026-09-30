@@ -121,19 +121,18 @@ EXPOSE 3080
 # 救援工具集（librescue + probe + 命令入口 + lifeboat 模板）
 # Docker 的 COPY <src> 为目录时只复制其【内容】到目标、不保留目录本身；故先 mkdir 目标目录、
 # 再以 <dir>/. 结尾复制，确保内容落在 /opt/dsh-rescue/lifeboat.tmpl/ 子目录（LIFEBOAT_TMPL 语义）。
-# hmr-off.yml 是 HMR 关闭用的 launcher 叠加层，由 entrypoint 以 --patch 注入（见该文件头注释）
-COPY scripts/librescue.sh scripts/probe-ready.js scripts/diagnose.js scripts/report.js scripts/logtag.js scripts/logtee.js scripts/rescue-supervise.sh scripts/rescue scripts/hmr-off.yml scripts/vercmp.sh scripts/remote-setup.sh /opt/dsh-rescue/
+# 注：HMR 关闭用的 launcher 叠加层（hmr-off.yml）已于 2026-09-30 移除，本项目不再干预 HMR。
+COPY scripts/librescue.sh scripts/probe-ready.js scripts/diagnose.js scripts/report.js scripts/logtag.js scripts/logtee.js scripts/rescue-supervise.sh scripts/rescue scripts/vercmp.sh scripts/remote-setup.sh /opt/dsh-rescue/
 RUN mkdir -p /opt/dsh-rescue/lifeboat.tmpl
 COPY scripts/lifeboat.tmpl/. /opt/dsh-rescue/lifeboat.tmpl/
 ENV LIFEBOAT_TMPL=/opt/dsh-rescue/lifeboat.tmpl
 # 消除对【构建机 umask】的隐式依赖：COPY 保留源文件权限，而 umask 077 的构建环境会让这些资产
 # 在镜像内变成 0600 root —— dsh/rescue 以 uid 1000 运行时根本读不到它们。
-# （真机实测 2026-09-18：hmr-off.yml 落到 0600 后 entrypoint 的 --patch 被拒，关闭 HMR 的加固
-#   静默失效；而本地单测全绿 —— git 只记录 644/755，正常 umask 下 checkout 出来恰好可读，
-#   问题只在 umask 收紧的构建机上出现。）
+# （真机实测 2026-09-18：某资产落到 0600 后被调用方拒绝，加固静默失效；而本地单测全绿
+#   —— git 只记录 644/755，正常 umask 下 checkout 出来恰好可读，问题只在 umask 收紧的构建机上出现。）
 # 故统一放开读权限：+x 只给需要执行的那三个，其余（含今后新增的资产）一律 a+r。
 # 注意：这些说明必须写在 RUN 之前 —— RUN 的续行里出现 # 会被 shell 当注释，吞掉其后的命令。
-RUN sed -i 's/\r$//' /opt/dsh-rescue/librescue.sh /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/diagnose.js /opt/dsh-rescue/report.js /opt/dsh-rescue/logtag.js /opt/dsh-rescue/logtee.js /opt/dsh-rescue/rescue-supervise.sh /opt/dsh-rescue/rescue /opt/dsh-rescue/hmr-off.yml /opt/dsh-rescue/vercmp.sh /opt/dsh-rescue/remote-setup.sh /opt/dsh-rescue/lifeboat.tmpl/package.json /opt/dsh-rescue/lifeboat.tmpl/cordis.patch.yml \
+RUN sed -i 's/\r$//' /opt/dsh-rescue/librescue.sh /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/diagnose.js /opt/dsh-rescue/report.js /opt/dsh-rescue/logtag.js /opt/dsh-rescue/logtee.js /opt/dsh-rescue/rescue-supervise.sh /opt/dsh-rescue/rescue /opt/dsh-rescue/vercmp.sh /opt/dsh-rescue/remote-setup.sh /opt/dsh-rescue/lifeboat.tmpl/package.json /opt/dsh-rescue/lifeboat.tmpl/cordis.patch.yml \
     && chmod +x /opt/dsh-rescue/rescue /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/librescue.sh \
     && chmod a+r /opt/dsh-rescue/* /opt/dsh-rescue/lifeboat.tmpl/* \
     && ln -sf /opt/dsh-rescue/rescue /usr/local/bin/rescue
@@ -243,7 +242,7 @@ RUN --mount=type=cache,target=/root/.npm \
 #
 # ⚠ 实现注意（勿把注释写回下面的 RUN 续行里）：RUN 的续行中 `#` 会被 shell 当注释，
 #   吞掉其后的命令 —— 本仓库既有教训见上方 /opt/dsh-rescue 的同类注释，且
-#   scripts/t/test-hmr-off.sh 有专门的门禁（awk 状态机）盯着这一点。故所有说明写在 RUN 之上。
+#   scripts/t/test-dockerfile-hygiene.sh 有专门的门禁（awk 状态机）盯着这一点。故所有说明写在 RUN 之上。
 #
 # 步骤：① 临时 profile 里用镜像内 pnpm 真装 → ② 搬运 node_modules + 三个元数据文件
 #       → ③ 断言插件本体与 bundle 入口在位（静默装歪会让容器复制出一棵起不来的树，

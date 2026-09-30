@@ -61,6 +61,53 @@
 - `scripts/t/test-remote-setup.sh` 新增横幅断言：密码行必须"行尾即密码"、
   必须打印凭据存档路径（同样经变异测试确认能抓到回归）。
 
+### Removed
+- **不再干预 profile 的 HMR（删除 `--patch hmr-off.yml` 整套机制）**。
+  此前 entrypoint 在每条 dsh 启动命令上注入 `--patch /opt/dsh-rescue/hmr-off.yml`，
+  关掉 base 组合包的 `hmr` 条目 —— 理由是"HMR 依赖的原生绑定在只读根 FS 下不可用，
+  dsh 会抛 `--expose-internals is required for HMR service` 而崩溃"。
+
+  **为什么现在可以整个去掉**（三条依据，前两条是实测）：
+  1. **崩溃的根因早已由另外两层修复，与 HMR 开关无关** ——
+     Dockerfile 的 `NARB_DISABLE_NATIVE_CACHE=1`（绑定改从可执行卷 `/opt/dsh` 原路径
+     `dlopen`，绕开 tmpfs）与 compose 的 `tmpfs /tmp:size=128m,exec`。
+     关闭 HMR 从来只是**症状层的保险**，不是根因修复。
+  2. **实测（dsh 0.2.0-rc.2）：不带该叠加层启动 dsh web 完全正常** —— 无任何
+     `--expose-internals` 报错，启动后服务可用。`--dump-config` 亦确认此时 `hmr` 条目
+     为 `disabled: !!js "!ctx.get('profileContext')"`（即 web 下**默认启用**）。
+  3. **实测：带与不带该叠加层的 dsh 进程，inotify 句柄数都是 0** ——
+     HMR 的 chokidar watcher（`dsh-hmr` 用 `chokidar` 监听 profile patch 文件）
+     在该环境下**根本没有启动**。也就是说这层关闭**一直是零效果的**。
+     佐证：把 `cordis.patch.yml` 改成**非法 YAML**（源码保证重载失败会
+     `logger.warn("config reload ... failed")`）也没有任何输出，进程照常存活。
+
+  代价与收益：这层无效的关闭让本项目长期背着一个"关掉上游功能"的补丁，
+  并且**掩盖了"绑定不可用"这个本该暴露的信号** —— 同一根因（绑定不可用）还会让
+  第三方插件报 `ERR_MODULE_NOT_FOUND`，而 HMR 被静默关掉后，用户看不到任何提示。
+  去掉后 HMR 完全跟随 dsh 默认，本项目不再对上游行为做无谓干预。
+
+  改动范围：删除 `scripts/hmr-off.yml`；`entrypoint.sh` 与 `rescue-supervise.sh`
+  移除 `HMR_OFF_YML` / `HMR_OFF_PATCH` 的构造与全部注入点（7 处启动命令）；
+  `Dockerfile` 移除其 COPY 与 CRLF 归一；`docs/07`（中英）安全加固节改写为
+  "不再干预 HMR"并说明前提；`docs/03`、README（中英）同步口径。
+  ⚠ 若你**自建 compose** 覆盖了上述两层修复（去掉 `tmpfs … ,exec` 或改
+  `NARB_DISABLE_NATIVE_CACHE`），请自行确认绑定仍可加载，否则症状是 dsh 启动失败
+  或第三方插件全部加载不出来。
+
+- `scripts/t/test-hmr-off.sh` → **`scripts/t/test-dockerfile-hygiene.sh`**。
+  原测试的主体（断言每条启动路径都注入 `--patch`、镜像携带叠加层、叠加层真的禁用）
+  随机制一起消失，但它夹着三条**与 HMR 无关、由真机事故换来**的通用断言，不能跟着删，
+  故迁移并补反向断言：
+  - H1 `RUN` 续行内不得出现注释行（会被 shell 当注释，吞掉其后命令 —— 真机踩过，
+    镜像静默丢掉 rescue 软链）；
+  - H2 救援资产必须 `chmod a+r`（umask 077 的构建机会让资产落成 0600，uid 1000 读不到）；
+  - H3 不得再依赖 0.1.6-alpha.2 已被上游删除的 `patchReload` 字段；
+  - H4 **反向锁住本次决定**：`HMR_OFF_PATCH` / `HMR_OFF_YML` / `hmr-off.yml` 不得再出现在
+    可执行代码或镜像资产里（注释里解释"当初为何移除"不算）。锁的理由是"半恢复"
+    （改了 entrypoint 却没改 Dockerfile，或反之）会以"看起来在关 HMR、实际没关"的形式
+    静默漂移 —— 正是当初那次事故的翻版。
+  `test-nonroot.sh` 中"entrypoint 必须有 `HMR_OFF_PATCH`"的断言一并移除。
+
 ### Fixed
 - **构建期 `pnpm` 必须用绝对路径（`tag v0.6.0-dsh-0.2.0-rc.2` 构建失败的真因）**。
   该 tag 推上去后 `build-and-push-image` 的 **`Build and push` 步骤失败，exit code 127**

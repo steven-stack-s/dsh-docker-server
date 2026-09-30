@@ -59,14 +59,13 @@ grep -q 'chown "$RUN_USER_ID:$RUN_GROUP_ID" "$TMPDIR"' "$ENTRY" || fail entrypoi
 # TMPDIR 的默认值必须来自 Dockerfile（镜像层兜底），compose 可覆盖
 grep -qE '^ENV TMPDIR=/data/dsh/tmp' "$DFILE" || fail dockerfile-missing-tmpdir-env
 grep -q 'chown' "$ENTRY" || fail entrypoint-missing-chown
-# read_only 下必须关闭 profile 的 HMR。关闭手段在 2026-09-18（升 DSH 0.1.6-alpha.2）已换代：
-# 从"改 profile manifest 的 patchReload 字段"改为"启动时注入 --patch 叠加层"。原因见
-# scripts/hmr-off.yml 与 test-hmr-off.sh —— alpha.2 删除了 patchReload，旧做法会退化成
-# 没人读取的死写入（HMR 实际仍开着），而旧门禁只 grep 那行文本、照样全绿。
-# 这里只做存在性检查，完整断言（每条启动路径都注入 / 镜像携带叠加层 / 叠加层真的禁用）在
-# scripts/t/test-hmr-off.sh。
+# 【2026-09-30 变更】此前这里断言 entrypoint 必须注入关闭 HMR 的 --patch。
+# 本项目现已**不再干预 HMR**（HMR 跟随 dsh 默认），该断言随之删除。理由见
+# entrypoint.sh 的「移除：曾在此把 profile 的 HMR 关掉」注释 —— 简述：崩溃根因由
+# NARB_DISABLE_NATIVE_CACHE 与 tmpfs exec 两层修复，且实测该叠加层一直是零效果
+# （带与不带它的进程 inotify 句柄数都是 0），反而掩盖了"绑定不可用"这个本该暴露的信号。
+# 反向断言（不得再出现 HMR 干预）在 scripts/t/test-dockerfile-hygiene.sh 的 H4。
 grep -q 'RESCUE_PROFILE' "$ENTRY" || fail entrypoint-missing-rescue-profile
-grep -q 'HMR_OFF_PATCH' "$ENTRY" || fail entrypoint-missing-hmr-off-injection
 # 属主可读性归一：chown 只改属主不改权限位，历史 0000 文件会让非 root 启动 EACCES
 grep -q -- '-not -perm -u+r' "$ENTRY" || fail entrypoint-missing-perm-normalization
 grep -q 'chmod u+rwX' "$ENTRY" || fail entrypoint-missing-perm-chmod
