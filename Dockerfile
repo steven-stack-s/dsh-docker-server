@@ -260,6 +260,16 @@ RUN --mount=type=cache,target=/root/.npm \
 # （白占几十 MB，且下次构建无法复用）。显式用 --store-dir 指到 cache mount，两个目的都达成。
 # 另注：pnpm 的 node_modules 是从 store **硬链接**出来的，store 与目标必须同一文件系统 ——
 # cache mount 与 /tmp 都属构建容器内同一 FS，故成立。
+#
+# ⚠⚠ pnpm 必须用【绝对路径】调用（真机事故 2026-09-30，tag v0.6.0-dsh-0.2.0-rc.2 构建失败）：
+#   上面那个 npm 层把 dsh 与 pnpm 一起装进了 **/opt/dsh-seed**（它用行内 NPM_CONFIG_PREFIX
+#   覆盖了 ENV NPM_CONFIG_PREFIX=/opt/dsh），而 `ENV PATH=/opt/dsh/bin:$PATH` 指向的是
+#   /opt/dsh —— 那是留给**运行时挂载卷**的路径，**不含 /opt/dsh-seed/bin**。
+#   于是这里裸写 `pnpm` 直接 exit 127（command not found），构建在该层中断。
+#   教训：本仓库对 seed 内可执行文件一律用绝对路径（entrypoint 的 /opt/dsh-seed/bin/dsh、
+#   /opt/dsh-seed/bin/pnpm，rescue 的 /opt/dsh-seed/bin/dsh 都是这么写的）；
+#   只有构建期的 `npm install` 能靠 NPM_CONFIG_PREFIX 行内覆盖生效，`pnpm` 没有这层间接性。
+#   （不改全局 PATH 而用绝对路径：改 PATH 会波及后续所有层与运行期行为，副作用大得多。）
 # ============================================================================
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/root/.pnpm-store \
@@ -271,15 +281,24 @@ RUN --mount=type=cache,target=/root/.npm \
     fi; \
     staging=/opt/dsh-remote-seed; \
     tmp_profile=/tmp/remote-seed-profile; \
+    pnpm_bin=/opt/dsh-seed/bin/pnpm; \
+    if [ ! -x "$pnpm_bin" ]; then \
+        echo "[seed] FATAL: $pnpm_bin is missing or not executable." >&2; \
+        echo "[seed]   pnpm is installed by the previous RUN under NPM_CONFIG_PREFIX=/opt/dsh-seed," >&2; \
+        echo "[seed]   which is NOT on PATH (PATH points at /opt/dsh, the runtime volume path)." >&2; \
+        echo "[seed]   Check that PNPM_VERSION is non-empty and that the previous RUN succeeded." >&2; \
+        ls -l /opt/dsh-seed/bin >&2 2>&1 || true; \
+        exit 1; \
+    fi; \
     rm -rf "$staging" "$tmp_profile"; \
     mkdir -p "$staging" "$tmp_profile"; \
     printf '{\n  "name": "dsh-remote-seed",\n  "private": true,\n  "dependencies": {}\n}\n' > "$tmp_profile/package.json"; \
     printf 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n' > "$tmp_profile/pnpm-workspace.yaml"; \
     cd "$tmp_profile"; \
     export NPM_CONFIG_CACHE=/root/.npm; \
-    pnpm add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION" \
+    "$pnpm_bin" add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION" \
         || (echo '[seed] pnpm add for default plugin failed (attempt 1); retrying once' && sleep 5 \
-            && pnpm add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION"); \
+            && "$pnpm_bin" add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION"); \
     cp -a "$tmp_profile/node_modules" "$staging/node_modules"; \
     cp -a "$tmp_profile/package.json" "$staging/package.json"; \
     for f in pnpm-lock.yaml pnpm-workspace.yaml; do \

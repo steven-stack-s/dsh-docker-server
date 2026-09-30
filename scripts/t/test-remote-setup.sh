@@ -34,7 +34,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 SCRIPT="$ROOT/scripts/remote-setup.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL script-missing"; exit 1; }
 
-fail() { echo "FAIL-$1: $2"; exit 1; }
+# 注意 ${2:-}：本脚本 set -u，而部分断言（如静态门禁）没有附加信息要打印。
+# 裸写 $2 会在"只传一个参数"时报 "parameter not set" —— 那会让门禁自己崩掉，
+# 表现为难以理解的错误而不是 FAIL-xxx，反而掩盖了真正被检测到的问题。
+fail() { echo "FAIL-$1${2:+: $2}"; exit 1; }
 
 # 在沙箱里跑一次 remote_setup，回传 stdout+stderr。
 # $1 = DSH_HOME；其余通过环境变量由调用方预设（用 env 传，避免污染本进程）
@@ -255,5 +258,30 @@ grep -q '/opt/dsh-rescue/remote-setup.sh' "$DF" || fail t12-dockerfile-missing-c
 grep -q 'remote_setup' "$EP" || fail t12-entrypoint-not-wired
 # 调用必须在 root 首启块内（插件与 patch 要写挂载卷，降权后没权限）
 grep -qE '\.\s+"\$RS_SCRIPT"' "$EP" || fail t12-entrypoint-not-sourcing
+
+# ---- T13 构建期 pnpm 必须用绝对路径（真机事故 2026-09-30）----
+# tag v0.6.0-dsh-0.2.0-rc.2 的镜像构建在插件 seed 层失败，exit code 127。
+# 根因：npm 层把 pnpm 装进 /opt/dsh-seed（行内 NPM_CONFIG_PREFIX 覆盖 ENV），
+# 而 ENV PATH=/opt/dsh/bin:$PATH 指向的是**运行时挂载卷**路径，不含 /opt/dsh-seed/bin，
+# 于是裸写 `pnpm` 直接 command not found。
+# 本仓库对 seed 内可执行文件一律用绝对路径（entrypoint / rescue 都如此），此处必须一致。
+# 断言方式：该 RUN 块内**不得**出现裸的 pnpm 调用。匹配规则要覆盖两种真实写法：
+#   - 续行行首带缩进：`    pnpm add ...`（本仓库的实际形态）
+#   - 命令分隔后紧跟：`; pnpm add` / `&& pnpm add` / `( pnpm add`
+# 故用 (^|[;&|(])[[:space:]]*pnpm —— 注意 `$pnpm_bin` 与 `/abs/path/pnpm` 都不匹配
+# （前者是 `$` 开头，后者 pnpm 前是 `/`），这正是"绝对路径写法不被误报"的原因。
+# 单测全绿而构建失败，正是本项目最忌讳的"绿着但已失效"，故必须有这道静态门禁。
+if awk '
+  /^RUN /  { inrun = ($0 ~ /\\$/) ; next }
+  inrun    { inrun = ($0 ~ /\\$/) }
+  inrun && /(^|[;&|(])[[:space:]]*pnpm[[:space:]]/ { print "bare pnpm at line " NR ": " $0; bad = 1 }
+  END      { exit bad }
+' "$DF"; then :; else fail t13-dockerfile-bare-pnpm; fi
+# 正向断言：必须存在绝对路径变量与实际调用，否则上面的"不得出现"会因整块被删而空过
+grep -q 'pnpm_bin=/opt/dsh-seed/bin/pnpm' "$DF" || fail t13-missing-pnpm-bin-var
+grep -q '"\$pnpm_bin" add ' "$DF" || fail t13-missing-abs-pnpm-invoke
+# 且必须在调用前断言该文件可执行 —— 否则将来 seed 换成不含 pnpm 的基础镜像时，
+# 失败信息会退化成难以定位的 127，而不是明确的致命提示。
+grep -qF 'if [ ! -x "$pnpm_bin" ]; then' "$DF" || fail t13-missing-pnpm-exec-check
 
 echo ALL-PASS
