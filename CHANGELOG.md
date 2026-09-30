@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [v0.6.1-dsh-0.2.0-rc.2] - 2026-09-30
+
 ### Fixed
 - **救生舱日志里的"原因"不再说谎（`auto fallback: self-heal exhausted` 曾是硬编码）**。
   真机 2026-09-30：某实例重启后直接进救生舱，日志写着"自愈耗尽"，据此排查了很久 ——
@@ -44,6 +46,25 @@
   写进 `cordis.patch.yml` 的**文件注释**保持中文（那是写入用户文件的内容，不属容器日志）。
   门禁：`test-remote-setup.sh` 新增「横幅不得含 CJK 字符」断言（用 node 精确判定，
   避免 grep 的 locale 依赖）。
+- **构建期 `pnpm` 必须用绝对路径（`tag v0.6.0-dsh-0.2.0-rc.2` 构建失败的真因）**。
+  该 tag 推上去后 `build-and-push-image` 的 **`Build and push` 步骤失败，exit code 127**
+  （单测 job 全绿 —— 这正是本项目最忌讳的"绿着但已失效"）。根因：插件 seed 层里裸写了
+  `pnpm add …`，而 `pnpm` 并不是基础镜像自带的 —— 它是上一个 `RUN` 用
+  `NPM_CONFIG_PREFIX=/opt/dsh-seed` 装进 **`/opt/dsh-seed/bin`** 的；可 `PATH` 里只有
+  `ENV PATH=/opt/dsh/bin:$PATH`，那指向的是**运行时挂载卷**路径，**不含** `/opt/dsh-seed/bin`。
+  于是 shell 找不到 `pnpm` 直接 127。
+  修法：改用 `pnpm_bin=/opt/dsh-seed/bin/pnpm` 绝对路径调用（与本仓库对 seed 内可执行文件的
+  既有惯例一致：entrypoint 的 `/opt/dsh-seed/bin/dsh`、`/opt/dsh-seed/bin/pnpm`，rescue 的
+  `/opt/dsh-seed/bin/dsh`）。**刻意不改全局 PATH** —— 那会波及后续所有层与运行期行为。
+  另加：调用前先 `if [ ! -x "$pnpm_bin" ]` 给出**可读的致命提示**（含"PATH 指向 /opt/dsh 而非
+  seed"的说明与 `ls -l /opt/dsh-seed/bin` 现场），而不是让失败退化成难以定位的 127。
+- **补上漏掉的门禁**（本次事故的直接教训）：`scripts/t/test-remote-setup.sh` 新增 T13，
+  用 awk 状态机扫描 Dockerfile 的 `RUN` 续行，断言**不得出现裸 `pnpm` 调用**
+  （匹配 `(^|[;&|(])[[:space:]]*pnpm`，故 `$pnpm_bin` 与绝对路径不会被误报），
+  并正向断言绝对路径变量、实际调用与可执行性检查三者都在位（防止"整块被删"让反向断言空过）。
+  该门禁已用变异测试双向验证：回退成裸 `pnpm` 即报 `FAIL-t13-dockerfile-bare-pnpm`。
+- 顺带修掉测试脚本自身的一个缺陷：`fail()` 在 `set -u` 下被只传一个参数调用时会以
+  `parameter not set` 崩掉（掩盖真正被检测到的问题），改为 `fail() { echo "FAIL-$1${2:+: $2}"; …; }`。
 
 ### Added
 - **`docs/04` 故障排查（中英）新增两条实测坑**：
@@ -108,32 +129,18 @@
     静默漂移 —— 正是当初那次事故的翻版。
   `test-nonroot.sh` 中"entrypoint 必须有 `HMR_OFF_PATCH`"的断言一并移除。
 
-### Fixed
-- **构建期 `pnpm` 必须用绝对路径（`tag v0.6.0-dsh-0.2.0-rc.2` 构建失败的真因）**。
-  该 tag 推上去后 `build-and-push-image` 的 **`Build and push` 步骤失败，exit code 127**
-  （单测 job 全绿 —— 这正是本项目最忌讳的"绿着但已失效"）。根因：插件 seed 层里裸写了
-  `pnpm add …`，而 `pnpm` 并不是基础镜像自带的 —— 它是上一个 `RUN` 用
-  `NPM_CONFIG_PREFIX=/opt/dsh-seed` 装进 **`/opt/dsh-seed/bin`** 的；可 `PATH` 里只有
-  `ENV PATH=/opt/dsh/bin:$PATH`，那指向的是**运行时挂载卷**路径，**不含** `/opt/dsh-seed/bin`。
-  于是 shell 找不到 `pnpm` 直接 127。
-  修法：改用 `pnpm_bin=/opt/dsh-seed/bin/pnpm` 绝对路径调用（与本仓库对 seed 内可执行文件的
-  既有惯例一致：entrypoint 的 `/opt/dsh-seed/bin/dsh`、`/opt/dsh-seed/bin/pnpm`，rescue 的
-  `/opt/dsh-seed/bin/dsh`）。**刻意不改全局 PATH** —— 那会波及后续所有层与运行期行为。
-  另加：调用前先 `if [ ! -x "$pnpm_bin" ]` 给出**可读的致命提示**（含"PATH 指向 /opt/dsh 而非
-  seed"的说明与 `ls -l /opt/dsh-seed/bin` 现场），而不是让失败退化成难以定位的 127。
-- **补上漏掉的门禁**（本次事故的直接教训）：`scripts/t/test-remote-setup.sh` 新增 T13，
-  用 awk 状态机扫描 Dockerfile 的 `RUN` 续行，断言**不得出现裸 `pnpm` 调用**
-  （匹配 `(^|[;&|(])[[:space:]]*pnpm`，故 `$pnpm_bin` 与绝对路径不会被误报），
-  并正向断言绝对路径变量、实际调用与可执行性检查三者都在位（防止"整块被删"让反向断言空过）。
-  该门禁已用变异测试双向验证：回退成裸 `pnpm` 即报 `FAIL-t13-dockerfile-bare-pnpm`。
-- 顺带修掉测试脚本自身的一个缺陷：`fail()` 在 `set -u` 下被只传一个参数调用时会以
-  `parameter not set` 崩掉（掩盖真正被检测到的问题），改为 `fail() { echo "FAIL-$1${2:+: $2}"; …; }`。
-
 ### Notes
-- **`tag v0.6.0-dsh-0.2.0-rc.2` 的镜像未发布**（构建在插件 seed 层中断，镜像与 Release 均未产出；
-  同 SHA 的 `create-release` 工作流虽成功，但没有镜像可拉）。修复推上 `main` 后需**重发该 tag**
-  才会产出镜像 —— 删除并重推 tag 即可（GitHub Release 会被转为 draft，仓库工作流里的
-  `--draft=false` 正是为此准备）。
+- **本版把四项修复一次性带出**（`v0.6.0` 的镜像可用但缺它们）：构建期 pnpm 绝对路径、
+  救生舱标记原因如实呈现、凭据横幅（行尾密码 + 英文 + 存档位置）、不再干预 HMR。
+  建议直接升级到 `v0.6.1`。
+- **`v0.6.0-dsh-0.2.0-rc.2` 的镜像曾构建失败，已删除并重推修复**：首次推送时构建在插件
+  seed 层中断（exit 127，见上「构建期 pnpm」条），镜像与 Release 均未产出（同 SHA 的
+  `create-release` 工作流虽成功，但没有镜像可拉）。修复推上 `main` **并经 `main` 分支构建
+  验证通过后**才删除并重推同一 tag，构建成功、镜像已发布。重推 tag 的副作用（GitHub
+  Release 被转为 draft）已由仓库工作流里的 `--draft=false` 覆盖。
+- **升级影响面**：本次改动触及启动逻辑（HMR 注入被移除、救生舱判定、首启凭据横幅），
+  但**不改变数据格式与部署方式** —— 挂载卷、compose 变量、profile 布局均无变化，
+  `docker compose pull && docker compose up -d` 即可；无需迁移。
 - 本次事故暴露的盲区：`scripts/t` 的单测**只能静态检查 Dockerfile 文本**，无法真的执行构建。
   T13 把"构建期命令是否可达"这一不变量纳入静态覆盖，但**首次使用新的构建期命令时，
   仍应在本地或临时分支真跑一次 `docker build`** 再打 tag。
