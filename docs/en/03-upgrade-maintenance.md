@@ -103,8 +103,8 @@ automatically, and the three tags can point at three different versions:
 > ```
 >
 > Also from 0.1.7: `settings.yaml` is imported **once** into profile plugin configuration by the Settings
-> service and the file is renamed to `settings.yaml.imported` (see §9 of
-> `issues/2026-09-22-dsh-0.1.7-alpha.1-适配分析.md`).
+> service and the file is renamed to `settings.yaml.imported`. The full adaptation analysis for that
+> change is a requirements/design document kept out of this repository (not shown on GitHub).
 >
 > To leave yourself a fallback point, use `docker exec dsh rescue dsh-upgrade <version>`: it records the
 > current version as last-good first.

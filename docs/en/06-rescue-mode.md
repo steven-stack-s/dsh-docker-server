@@ -4,7 +4,11 @@
 
 DSH Docker's **plugin rescue mode**: when a plugin update/install breaks startup, it automatically rolls back to the last plugin tree that booted, so the service recovers by itself; in the worst case a clean **lifeboat** profile gives you a usable entry point. All user data (sessions / config / credentials / memory bank) is preserved throughout.
 
-> The detailed design lives in the internal spec《[06 · 救援模式设计规范](../zh-CN/06-救援模式-设计规范.md)》(Chinese).
+> The detailed design lives in the rescue-mode design spec. That document is a **requirements /
+> design document** and is no longer published with this repository; it is kept in the deployer's
+> out-of-repo docs directory:
+> `<repo-sibling>/docs/dsh-docker-server/specs/2026-09-07-救援模式-设计规范.md` (Chinese).
+> This page targets users and is self-contained; consult that file only for the design rationale.
 
 ## 1. Design Goals
 
