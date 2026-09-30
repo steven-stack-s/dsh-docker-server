@@ -67,15 +67,15 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-09-25) | Meaning |
+| tag | Points at (checked 2026-09-29) | Meaning |
 |---|---|---|
-| `latest` | `0.1.5-rc.3` | Stable recommendation — **lags behind `rc`** |
-| `next` | `0.1.7-rc.2` | Candidate (**the version this image currently pins**) |
+| `latest` | `0.1.7-rc.2` | Stable recommendation |
+| `next` | `0.2.0-rc.2` | Candidate (**the version this image currently pins**) |
 | `alpha` | `0.1.7-alpha.2` | Preview |
 
 > ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version, and never gets
-> the newest version (it is `0.1.5-rc.3`; the newest `0.1.7-rc.2` sits under `next`). Always pass the
-> full version: `@0.1.7-rc.2`. Verify with `docker exec dsh dsh --version`.
+> the newest version (it is `0.1.7-rc.2`; the newest `0.2.0-rc.2` sits under `next`). Always pass the
+> full version: `@0.2.0-rc.2`. Verify with `docker exec dsh dsh --version`.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

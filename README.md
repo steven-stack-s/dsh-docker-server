@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
 [![Image Build](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-dsh--docker--server-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker-server/pkgs/container/dsh-docker-server)
-[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.1.7--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
+[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.0--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
 [![License](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > Deploy [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) — DeepSeek's official AI coding agent framework (Web UI + CLI) — on **any Docker environment** with one command.
@@ -19,7 +19,8 @@
 - **Version-pinned at build + in-image seed** — dsh+pnpm are pre-installed into a seed (`/opt/dsh-seed`) at build time; on first boot the seed is copied to `/opt/dsh` (offline, version-pinned, ready in seconds). The seed stays in the image layer, so a broken main program can be restored offline.
 - **Program decoupled from image, upgraded in-container** — the DSH program lives on a mounted volume; daily upgrades are `docker exec dsh npm install -g @deepseek-ai/dsh@<version> && docker restart dsh` — no image rebuild needed. **An image upgrade carries dsh along**: on startup the entrypoint compares the image seed with the dsh in the volume and syncs when the seed is newer (see [docs 03](docs/en/03-upgrade-maintenance.md)).
 - **Fully persisted data** — three separate volumes for program / user data (sessions, configs, plugins, memory) / workspace; backup = copy the directory.
-- **Secure by default** — `dsh web` intentionally listens only on `127.0.0.1:3081` (official security design); `socat` forwards the external `3080` port into it. Intranet-only by default; password + MFA authentication can be added for remote access.
+- **Access control available out of the box** — ships the [dsh-remote](https://github.com/xgone/dsh-remote) auth plugin (password + MFA) and creates `admin` with a **random 16-character password** on first boot, printed to the first-boot log (**once only**). The plugin is baked into the image as an offline seed, so intranet/NAS deployments get authentication too. To go back to unauthenticated LAN-direct mode: `DSH_SETUP_REMOTE=off`.
+- **Secure by default** — `dsh web` intentionally listens only on `127.0.0.1:3081` (official security design); `socat` forwards the external `3080` port into it.
 - **Multi-architecture** — GitHub Actions automatically builds `linux/amd64` + `linux/arm64` images and publishes them to `ghcr.io`.
 
 **🛟 Self-healing — deterministic root-cause analysis, red-line-guarded auto recovery**
@@ -41,10 +42,24 @@ cp .env.example .env            # edit .env, fill in DEEPSEEK_API_KEY (the rest 
 # 2. Start (on first boot, DSH is copied from the in-image seed; ready in seconds)
 docker compose up -d
 
-# 3. Access — docker logs dsh prints a one-time token; first visit http://<host-ip>:3080/?token=<token> (later visits need no token)
+# 3. Get the initial admin password — printed ONCE in the first-boot log
+docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
+#    username: admin, password: a random 16-character string; log in at http://<host-ip>:3080
+#    (then change it and enable MFA under Settings → Login & Account)
+
+# 4. If the UI asks for a one-time token, it is printed in docker logs too, e.g.
+#    http://<host-ip>:3080/?token=<token> (later visits need no token)
 ```
 
-> 💡 `.env.example` only lists the 12 vars used in daily deployment. Advanced knobs (self-heal details, resource
+> 🔐 **Authentication is ON by default.** First boot installs the `@xgone/dsh-remote` auth plugin and
+> creates an admin account — the password is **printed once only**, and restarts or container
+> recreation will not show it again (so it never lands in every `docker logs` capture).
+> Lost it? Delete `<DSH_DATA_DIR>/auth/store.json` and restart to get a fresh one (⚠ this wipes all
+> accounts and MFA config). Prefer your own password? Set `DSH_ADMIN_PASSWORD` in `.env` (≥6 chars;
+> nothing is logged then). To disable the auth layer (fully trusted intranet only):
+> `DSH_SETUP_REMOTE=off`. See [docs/en/02-authentication-remote-access.md](docs/en/02-authentication-remote-access.md).
+
+> 💡 `.env.example` only lists the vars used in daily deployment. Advanced knobs (self-heal details, resource
 > tuning, npm registry, key-file mount, etc.) are defaulted in `docker-compose.yml` via `${VAR:-default}` — edit
 > the compose file when you need them, or override in `.env` by adding the same variable. See the full reference:
 > [docs/en/07-environment-variables.md](docs/en/07-environment-variables.md).

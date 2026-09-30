@@ -5,7 +5,9 @@
 #   - 镜像 dsh-docker-server（node:24 + git + socat + entrypoint）：构建一次，之后不再重建
 #   - DSH 程序本体装在卷 /opt/dsh：日常升级 = 容器内 npm 操作
 #   - dsh web 只监听 127.0.0.1:3081（安全设计），socat 把外部 0.0.0.0:3080 转发进去
-#   - 默认内网直连；远程访问（账号密码 + MFA）按 docs/02-认证与远程访问.md 可选加装
+#   - 默认装好账号密码 + MFA 认证插件（@xgone/dsh-remote，离线 seed 在镜像内）：
+#     首启创建 admin + 随机 16 位密码，密码只打印一次（docker logs dsh | grep -A9 'first-boot admin credentials'）
+#     关掉认证回到内网直连：.env 设 DSH_SETUP_REMOTE=off（见 docs/02-认证与远程访问.md）
 #
 # 【日常维护】
 #   升级 DSH：docker exec dsh npm install -g @deepseek-ai/dsh@<新版本> && docker restart dsh
@@ -15,7 +17,8 @@
 # 【快速开始】
 #   1. cp .env.example .env 并填写 DEEPSEEK_API_KEY
 #   2. docker compose up -d
-#   3. 访问 http://<主机IP>:3080
+#   3. 取初始管理员密码：docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
+#   4. 访问 http://<主机IP>:3080 登录（用户名 admin）
 # ============================================================================
 
 services:
@@ -126,6 +129,21 @@ services:
       # `rescue clean` 回收 TMPDIR 下 dsh 临时产物时保留多少分钟内的（默认 1440=24h）。
       # 阈值内的目录视为"可能仍在使用"，绝不删；调小更激进（如 60），调大更保守。
       - RESCUE_TMP_KEEP_MIN=${RESCUE_TMP_KEEP_MIN:-1440}
+      # ── 默认认证插件（@xgone/dsh-remote）──────────────────────────────────
+      # 镜像内置该插件的离线副本，entrypoint 首启把它装进 web profile 并预置首个管理员：
+      #   用户名 admin + 随机 16 位密码，**密码只打印一次**到首次启动日志
+      #   （docker logs dsh | grep -A9 'first-boot admin credentials'）。
+      # 关掉它则回到历史行为：无认证层、仅内网直连（此时访问局域网 IP 需配 DSH_TRUSTED_HOSTS）。
+      - DSH_SETUP_REMOTE=${DSH_SETUP_REMOTE:-on}
+      # 首个管理员的用户名（仅账号库为空时使用）。
+      - DSH_DEFAULT_ADMIN_USER=${DSH_DEFAULT_ADMIN_USER:-admin}
+      # 显式指定首个管理员的密码（仅账号库为空时使用）。**留空即随机生成 16 位**，
+      # 生成结果打印在首启日志里。填了则不打日志（密码由你掌握）。
+      # ⚠ 该密码会以明文写进 /data/dsh/profiles/web/cordis.patch.yml（属主 0600），
+      #   首次登录后请改密，或删掉该文件里的 bootstrap 段。
+      - DSH_ADMIN_PASSWORD=${DSH_ADMIN_PASSWORD:-}
+      # 插件离线副本在镜像内的位置（正常无需改；仅自建镜像改了路径时才需要）。
+      - DSH_REMOTE_SEED=${DSH_REMOTE_SEED:-/opt/dsh-remote-seed}
 
     volumes:
       # DSH 程序本体（npm 全局包 + dsh/pnpm 命令）——升级与插件管理写入这里

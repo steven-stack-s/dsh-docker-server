@@ -114,6 +114,52 @@ Since v0.4.6 the image runs as a **non-root** user and tightens capabilities + r
 | `DSH_IMAGE` | `ghcr.io/steven-stack-s/dsh-docker-server:latest` | Image pulled at `up`. To pin a version explicitly, use the `v<project>-dsh-<dsh>` tag scheme. |
 | `DSH_VERSION` | (not in compose) | **For manual `docker build` only** (`--build-arg DSH_VERSION=<version>`): pins the dsh version baked into the seed. Compose **deliberately exposes no local build path** — when `image:` and `build:` share one tag, `docker compose up -d` silently falls back to building from the current directory instead of failing, so switching `DSH_IMAGE` to a tag that is not published yet would quietly run an image built from stale code (hit on a real deployment, 2026-09-17). See the comment above `services:` in `docker-compose.yml`. |
 | `PNPM_VERSION` | (not in compose) | Same as above — manual `docker build` only; pins the pnpm version baked into the seed. |
+| `REMOTE_PLUGIN_VERSION` | (not in compose) | Same as above — manual `docker build` only: version of the default auth plugin (`@xgone/dsh-remote`) baked into the image. **Empty** (`--build-arg REMOTE_PLUGIN_VERSION=`) builds an image without the plugin, and first boot falls back to unauthenticated LAN-direct mode automatically. |
+| `REMOTE_PLUGIN_NAME` | (not in compose) | Same as above — manual `docker build` only: package name of the default auth plugin (default `@xgone/dsh-remote`), for forks or private registries. |
+| `DSH_REMOTE_SEED` | `/opt/dsh-remote-seed` | Location of the plugin's offline copy inside the image. The entrypoint copies it into the profile on first boot, **with no network access**. Normally no change needed; set it only if your custom image moved that path. |
+
+---
+
+## 3.5 Default auth plugin (@xgone/dsh-remote)
+
+Since v0.6.0 the image **installs and enables** the auth plugin by default and provisions an admin
+account on first boot:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DSH_SETUP_REMOTE` | `on` | Master switch. `off` = install no plugin and create no account, restoring the historical behaviour (no auth layer, LAN-direct only). In that mode, reaching DSH by LAN IP requires `DSH_TRUSTED_HOSTS`, otherwise `/api` returns 403. |
+| `DSH_DEFAULT_ADMIN_USER` | `admin` | Username of the first admin. **Used only while the account store is empty** — once `$DSH_HOME/auth/store.json` holds an account this is ignored (no rename, no password reset). |
+| `DSH_ADMIN_PASSWORD` | (empty) | Password of the first admin. **Empty = a random 16-character password** is generated and printed to the first-boot log (recommended). If set, nothing is printed (handy when a password manager holds it); it must be at least 6 characters. |
+
+**Get the password** (printed only on the run that actually creates the account):
+
+```bash
+docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
+```
+
+**Behaviour details** (each one is easy to misread, so they are spelled out):
+
+1. **The password is printed once.** The criterion is whether the account store has an account — not
+   how many times the container started. Once the account exists, neither restarts nor container
+   recreation print it again; otherwise the password would land in every `docker logs` capture,
+   and logs get forwarded, archived and pasted into issues. If you lose it, delete
+   `$DSH_HOME/auth/store.json` (i.e. `<DSH_DATA_DIR>/auth/store.json`) and restart — **that removes
+   every account and all MFA configuration**.
+2. **Existing accounts are never overwritten.** When the store is non-empty the plugin ignores the
+   `bootstrap` section in the config and logs a warning, so a password you changed yourself is not
+   reset by the image.
+3. **The plaintext does land on disk**: `bootstrap.password` in
+   `$DSH_HOME/profiles/web/cordis.patch.yml` is stored in clear text (file mode 0600, owner-readable
+   only). That is the plugin's documented approach and the only way to provision credentials without
+   a browser. After the first login, change the password and enable MFA; once changed, that section
+   becomes inert (the account exists, so `bootstrap` is no longer read).
+4. **Works offline**: the plugin copy ships inside the image (`DSH_REMOTE_SEED`) and is copied into
+   the profile on first boot, with no network access — the same seed mechanism as dsh itself, so
+   NAS/intranet deployments get authentication out of the box.
+5. **The image never downgrades it**: if the profile already carries the plugin, the entrypoint
+   **leaves it alone** — a version you upgraded with
+   `dsh plugin add @xgone/dsh-remote@<newer>` is preserved (upgrades go through `dsh plugin`; the
+   image seed only handles the "from nothing" case).
 
 ---
 

@@ -241,6 +241,30 @@ PPF
     esac
   fi
 
+  # ⑤b 默认认证插件（@xgone/dsh-remote）整备：装插件 + 登记 bundle + 预置首个管理员。
+  #     【为什么排在这里】它要写 profile 目录（插件树 + manifest + cordis.patch.yml），
+  #     而 ⑤ 刚把 /data/dsh/profiles 的属主对齐给运行用户；本步骤仍以 root 运行（降权在 ⑥），
+  #     写出的文件随后由下一轮的 ③ 属主对齐收尾。顺序错了会出现"root 属主的插件树让
+  #     uid 1000 读不到"→ profile 加载失败 → 自愈耗尽 → 进 lifeboat。
+  #     【为什么必须在 dsh 启动前】cordis.patch.yml 在启动时一次性读取（app-boot 的
+  #     loadProfileDirectory），运行期改它不会生效（除非 HMR 开着且是长驻 surface）。
+  #     【失败不阻断启动】插件装不上只是没有认证层（退回内网直连），而 PID1 起不来是彻底
+  #     不可用 —— 脚本内部恒返回 0，与本文件既有的"救命路径优先"约定一致。
+  #     【可关闭】.env 里设 DSH_SETUP_REMOTE=off（回到历史行为：纯内网直连、无认证）。
+  if [ -n "$RESCUE_PROFILE" ]; then
+    RS_SCRIPT=
+    for _c in /opt/dsh-rescue/remote-setup.sh "$HERE/scripts/remote-setup.sh" "$HERE/remote-setup.sh"; do
+      [ -f "$_c" ] && { RS_SCRIPT="$_c"; break; }
+    done
+    if [ -n "$RS_SCRIPT" ]; then
+      # 目标 profile 必须传给脚本：它按 RESCUE_PROFILE 决定装进哪个 profile 目录
+      RESCUE_PROFILE="$RESCUE_PROFILE" . "$RS_SCRIPT"
+      remote_setup || elog '[entrypoint] WARN default auth plugin setup reported an error (continuing)'
+    else
+      elog '[entrypoint] WARN remote-setup.sh missing; default auth plugin NOT installed (deployment runs without authentication)'
+    fi
+  fi
+
   # ⑥ 降权并重新 exec 本脚本。DSH_INIT_DONE 防止二次进入时再走本块。
   #
   # 【为何要探测 --init-groups】setpriv 的 --init-groups 会用 /etc/passwd 反查该 uid 的

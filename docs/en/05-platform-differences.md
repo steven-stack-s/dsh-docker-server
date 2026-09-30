@@ -20,10 +20,12 @@ systemctl restart docker
 
 ## 2. Synology DSM
 
-> ⚠ **When accessing over the NAS IP** (`http://192.168.x.x:3080`), add `192.168.x.x:3080` to
-> `DSH_TRUSTED_HOSTS` in `.env`: dsh only trusts loopback or allow-listed Hosts, and a missing entry
-> shows up as "the page opens but `/api` returns 403". Not needed when the dsh-remote auth plugin
-> is installed — after login the Host is normalized to loopback (see [02](02-authentication-remote-access.md)).
+> ⚠ **When accessing over the NAS IP** (`http://192.168.x.x:3080`): the auth plugin is **installed by
+> default**, so simply log in (the Host is normalized to loopback) — `DSH_TRUSTED_HOSTS` is **not**
+> needed. Only if you set `DSH_SETUP_REMOTE=off` to disable authentication must you add
+> `192.168.x.x:3080` to `DSH_TRUSTED_HOSTS` in `.env`: dsh only trusts loopback or allow-listed
+> Hosts, and a missing entry shows up as "the page opens but `/api` returns 403".
+> See [02](02-authentication-remote-access.md).
 
 - **Install**: Package Center → search and install "Container Manager" (Docker's official package); includes compose support.
 - **Paths**: Shared folders are mounted at `/volume1/...`; create a deployment directory inside a shared folder (e.g. `/volume1/docker/dsh-docker-server/`), and write absolute paths into `.env`:

@@ -122,7 +122,7 @@ EXPOSE 3080
 # Docker 的 COPY <src> 为目录时只复制其【内容】到目标、不保留目录本身；故先 mkdir 目标目录、
 # 再以 <dir>/. 结尾复制，确保内容落在 /opt/dsh-rescue/lifeboat.tmpl/ 子目录（LIFEBOAT_TMPL 语义）。
 # hmr-off.yml 是 HMR 关闭用的 launcher 叠加层，由 entrypoint 以 --patch 注入（见该文件头注释）
-COPY scripts/librescue.sh scripts/probe-ready.js scripts/diagnose.js scripts/report.js scripts/logtag.js scripts/logtee.js scripts/rescue-supervise.sh scripts/rescue scripts/hmr-off.yml scripts/vercmp.sh /opt/dsh-rescue/
+COPY scripts/librescue.sh scripts/probe-ready.js scripts/diagnose.js scripts/report.js scripts/logtag.js scripts/logtee.js scripts/rescue-supervise.sh scripts/rescue scripts/hmr-off.yml scripts/vercmp.sh scripts/remote-setup.sh /opt/dsh-rescue/
 RUN mkdir -p /opt/dsh-rescue/lifeboat.tmpl
 COPY scripts/lifeboat.tmpl/. /opt/dsh-rescue/lifeboat.tmpl/
 ENV LIFEBOAT_TMPL=/opt/dsh-rescue/lifeboat.tmpl
@@ -133,7 +133,7 @@ ENV LIFEBOAT_TMPL=/opt/dsh-rescue/lifeboat.tmpl
 #   问题只在 umask 收紧的构建机上出现。）
 # 故统一放开读权限：+x 只给需要执行的那三个，其余（含今后新增的资产）一律 a+r。
 # 注意：这些说明必须写在 RUN 之前 —— RUN 的续行里出现 # 会被 shell 当注释，吞掉其后的命令。
-RUN sed -i 's/\r$//' /opt/dsh-rescue/librescue.sh /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/diagnose.js /opt/dsh-rescue/report.js /opt/dsh-rescue/logtag.js /opt/dsh-rescue/logtee.js /opt/dsh-rescue/rescue-supervise.sh /opt/dsh-rescue/rescue /opt/dsh-rescue/hmr-off.yml /opt/dsh-rescue/vercmp.sh /opt/dsh-rescue/lifeboat.tmpl/package.json /opt/dsh-rescue/lifeboat.tmpl/cordis.patch.yml \
+RUN sed -i 's/\r$//' /opt/dsh-rescue/librescue.sh /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/diagnose.js /opt/dsh-rescue/report.js /opt/dsh-rescue/logtag.js /opt/dsh-rescue/logtee.js /opt/dsh-rescue/rescue-supervise.sh /opt/dsh-rescue/rescue /opt/dsh-rescue/hmr-off.yml /opt/dsh-rescue/vercmp.sh /opt/dsh-rescue/remote-setup.sh /opt/dsh-rescue/lifeboat.tmpl/package.json /opt/dsh-rescue/lifeboat.tmpl/cordis.patch.yml \
     && chmod +x /opt/dsh-rescue/rescue /opt/dsh-rescue/probe-ready.js /opt/dsh-rescue/librescue.sh \
     && chmod a+r /opt/dsh-rescue/* /opt/dsh-rescue/lifeboat.tmpl/* \
     && ln -sf /opt/dsh-rescue/rescue /usr/local/bin/rescue
@@ -167,11 +167,11 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-09-25 核对 npm dist-tags）：
-#   latest -> 0.1.5-rc.3    （稳定推荐版，落后于 rc）
-#   next   -> 0.1.7-rc.2    （本镜像锁定的版本）
+# 当前三个 tag 的实测指向（2026-09-29 核对 npm dist-tags）：
+#   latest -> 0.1.7-rc.2    （稳定推荐版）
+#   next   -> 0.2.0-rc.2    （本镜像锁定的版本）
 #   alpha  -> 0.1.7-alpha.2 （预览版）
-# 注：rc/alpha 线始终跑在 latest 之前（最新的是挂在 next 下的 0.1.7-rc.2）；
+# 注：rc/alpha 线始终跑在 latest 之前（最新的是挂在 next 下的 0.2.0-rc.2）；
 #     latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在 next / alpha tag 下。
 # 用 latest 会带来两个真问题：
 #   1) 与 docker-compose.yml 的默认值不一致 —— 不传 DSH_VERSION 时，
@@ -179,11 +179,23 @@ FROM base AS runtime
 #   2) 默认值随 npm 上的 tag 变动而静默漂移，同一份 Dockerfile 在不同时间构建出不同版本。
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
 # 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
-ARG DSH_VERSION=0.1.7-rc.2
+ARG DSH_VERSION=0.2.0-rc.2
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。
 ARG PNPM_VERSION=12.5.1
+
+# 默认安装的认证插件（@xgone/dsh-remote）版本。
+# 【为什么要钉死】与 DSH_VERSION 同理：插件随上游发布漂移，同一份 Dockerfile
+#   会在不同时间构建出不同插件版本。更要紧的是，本插件承担**默认访问控制**（见
+#   README 的「默认账号」一节），它的行为变更直接影响已部署实例的登录口径。
+# 要升级改这一处，或构建时传 --build-arg REMOTE_PLUGIN_VERSION=<版本>。
+# 置空（--build-arg REMOTE_PLUGIN_VERSION=）可构建「不带该插件」的镜像：
+#   entrypoint 检测不到镜像内的插件缓存时会跳过默认安装，回到内网直连模式。
+ARG REMOTE_PLUGIN_VERSION=0.3.5
+# 插件包名。单独抽成 ARG 便于换用 fork / 私有镜像源；entrypoint 侧靠
+# /opt/dsh-remote-seed 的存在与否判断「镜像要不要默认装」，而不是靠包名。
+ARG REMOTE_PLUGIN_NAME=@xgone/dsh-remote
 
 # 预装 dsh + pnpm 到 /opt/dsh-seed（非挂载路径，运行时不被卷遮蔽）。
 # entrypoint 在挂载卷 /opt/dsh 为空时，把 seed 整体复制过去 → 首次启动即就绪、离线可用、版本固定。
@@ -201,3 +213,81 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install -g @deepseek-ai/dsh@${DSH_VERSION} pnpm@${PNPM_VERSION} \
     || (echo '[seed] npm install failed (attempt 1); retrying once' && sleep 5 \
         && npm install -g @deepseek-ai/dsh@${DSH_VERSION} pnpm@${PNPM_VERSION})
+
+# ============================================================================
+# 默认认证插件（@xgone/dsh-remote）的**离线 seed**
+#
+# 【为什么预装而不是 container 内 `dsh plugin add`】
+#   `dsh plugin --profile web add <包>` 走 pnpm 装进 profile 的 node_modules —— 需要联网。
+#   而本项目的核心承诺是「首次启动即就绪、离线可用」（seed 机制就是为此存在）。首启再联网
+#   装插件会让「拉不到 npm registry 的 NAS/内网」直接退化成无认证的裸奔部署，且首启耗时
+#   从秒级变成分钟级（还要撞 RESCUE_START_TIMEOUT）。
+#   故这里把插件**以 pnpm 可识别的形式**预置进镜像的独立目录 /opt/dsh-remote-seed，
+#   由 entrypoint 首启复制进 profile 并登记到 manifest —— 全程离线。
+#
+# 【为什么装两份】profiles 有两类消费方，缺一不可：
+#   ① profile 的 node_modules —— DSH 的 profile 插件解析锚点之一，插件本体由此被 import；
+#   ② profile 的 pnpm 元数据（package.json/lockfile）—— `dsh plugin list/remove` 读它，
+#      缺失会让插件在插件市场里"看起来没装"，用户无法用 CLI 正常卸载。
+#   本步骤先在一个**临时 profile**里用真实的 pnpm 装一遍（产出带 lockfile 的完整树），
+#   再把 node_modules 与 pnpm 元数据整体搬进 /opt/dsh-remote-seed。这样产物与
+#   `dsh plugin add` 的结果同构，entrypoint 只需复制文件、无需联网。
+#
+# 【为什么用 pnpm 而非 npm】DSH 的 profile 用 pnpm 管理（profile 下自带
+#   pnpm-workspace.yaml，nodeLinker: hoisted）。用 npm 装出的扁平树缺 pnpm 的 lockfile，
+#   `dsh plugin` 后续操作会试图重新解析依赖（要么联网、要么报错），故必须同构。
+#
+# 【容器内首次启动的离线保证】entrypoint 直接复制这份 seed、无需联网。
+# 若用户显式改包名/版本（REMOTE_PLUGIN_NAME / REMOTE_PLUGIN_VERSION），这里照装；
+# 版本置空则整个 RUN 变成 no-op，镜像不带插件（entrypoint 自动回到无认证直连模式）。
+#
+# ⚠ 实现注意（勿把注释写回下面的 RUN 续行里）：RUN 的续行中 `#` 会被 shell 当注释，
+#   吞掉其后的命令 —— 本仓库既有教训见上方 /opt/dsh-rescue 的同类注释，且
+#   scripts/t/test-hmr-off.sh 有专门的门禁（awk 状态机）盯着这一点。故所有说明写在 RUN 之上。
+#
+# 步骤：① 临时 profile 里用镜像内 pnpm 真装 → ② 搬运 node_modules + 三个元数据文件
+#       → ③ 断言插件本体与 bundle 入口在位（静默装歪会让容器复制出一棵起不来的树，
+#          而那时已进入启动流程、排查成本极高；构建期断言最便宜）
+#       → ④ chmod -R a+rX 消除对构建机 umask 的隐式依赖（同 /opt/dsh-rescue 的既有教训）
+#
+# nodeLinker 必须与 DSH 自己写进 profile 的一致（dsh-app-boot 的 PROFILE_PNPM_WORKSPACE 是
+# nodeLinker:hoisted）。用 pnpm 默认的 isolated 会装出 symlink -> .pnpm 的树，搬到 profile 后
+# 一旦 .pnpm 结构有偏差就留下悬空链接（本项目在 .dsh-module-fallback 上已踩过同类事故）。
+#
+# 两个 cache mount：npm 用 /root/.npm，**pnpm 用 /root/.pnpm-store**。
+# 实测（2026-09-29）：pnpm 的内容寻址存储默认落在 `$HOME/.local/share/pnpm/store`，
+# 与 npm 的缓存目录**不是同一个**。只挂 /root/.npm 时，pnpm 的 store 会被写进镜像层
+# （白占几十 MB，且下次构建无法复用）。显式用 --store-dir 指到 cache mount，两个目的都达成。
+# 另注：pnpm 的 node_modules 是从 store **硬链接**出来的，store 与目标必须同一文件系统 ——
+# cache mount 与 /tmp 都属构建容器内同一 FS，故成立。
+# ============================================================================
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/root/.pnpm-store \
+    set -eux; \
+    if [ -z "$REMOTE_PLUGIN_VERSION" ]; then \
+        echo '[seed] REMOTE_PLUGIN_VERSION empty -> building WITHOUT the default auth plugin'; \
+        mkdir -p /opt/dsh-remote-seed; \
+        exit 0; \
+    fi; \
+    staging=/opt/dsh-remote-seed; \
+    tmp_profile=/tmp/remote-seed-profile; \
+    rm -rf "$staging" "$tmp_profile"; \
+    mkdir -p "$staging" "$tmp_profile"; \
+    printf '{\n  "name": "dsh-remote-seed",\n  "private": true,\n  "dependencies": {}\n}\n' > "$tmp_profile/package.json"; \
+    printf 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n' > "$tmp_profile/pnpm-workspace.yaml"; \
+    cd "$tmp_profile"; \
+    export NPM_CONFIG_CACHE=/root/.npm; \
+    pnpm add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION" \
+        || (echo '[seed] pnpm add for default plugin failed (attempt 1); retrying once' && sleep 5 \
+            && pnpm add --store-dir /root/.pnpm-store --ignore-scripts "$REMOTE_PLUGIN_NAME@$REMOTE_PLUGIN_VERSION"); \
+    cp -a "$tmp_profile/node_modules" "$staging/node_modules"; \
+    cp -a "$tmp_profile/package.json" "$staging/package.json"; \
+    for f in pnpm-lock.yaml pnpm-workspace.yaml; do \
+        if [ -f "$tmp_profile/$f" ]; then cp -a "$tmp_profile/$f" "$staging/$f"; fi; \
+    done; \
+    test -f "$staging/node_modules/$REMOTE_PLUGIN_NAME/package.json"; \
+    test -f "$staging/node_modules/$REMOTE_PLUGIN_NAME/cordis.patch.yml"; \
+    node -e "const p=require('$staging/node_modules/$REMOTE_PLUGIN_NAME/package.json'); if(!p.dsh||!p.dsh.bundle||!p.dsh.bundle.patch) throw new Error('not a DSH bundle: '+p.name); console.log('[seed] default plugin', p.name+'@'+p.version, 'bundle patch:', p.dsh.bundle.patch)"; \
+    chmod -R a+rX "$staging"; \
+    rm -rf "$tmp_profile"; \
+    echo '[seed] default auth plugin staged at /opt/dsh-remote-seed'

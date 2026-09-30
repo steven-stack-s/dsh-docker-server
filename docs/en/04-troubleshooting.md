@@ -6,7 +6,10 @@
 |---|---|---|
 | Container restarts repeatedly, logs `listen EADDRINUSE 127.0.0.1:3080` | The old entrypoint makes socat and dsh fight over the same port | Make sure you use this repo's entrypoint (socat listens on 3080, dsh on 3081) and rebuild the container |
 | Errors at startup like `plugin tree failed to load` / `node:zlib` | The base image's Node version is too old | Use this repo's Dockerfile (`node:24-slim`; DSH requires Node ≥ 22.18) |
-| The page opens but `/api/...` returns 403 | Not authenticated (dsh-remote installed) or the Host is not allow-listed (dsh-remote not installed) | With dsh-remote: log in, or create the first admin (see [02](02-authentication-remote-access.md)); after login it normalizes the Host to loopback, so no allow-list is needed. Without dsh-remote: set `DSH_TRUSTED_HOSTS` in `.env` (see [01](01-quick-start.md)) |
+| The page opens but `/api/...` returns 403 | Not authenticated (the auth plugin is installed by default) or the Host is not allow-listed (with `DSH_SETUP_REMOTE=off`) | Default setup: log in as `admin` with the password from the first-boot log (see [02](02-authentication-remote-access.md)); after login the Host is normalized to loopback, so no allow-list is needed. With the plugin off: set `DSH_TRUSTED_HOSTS` in `.env` (see [01](01-quick-start.md)) |
+| Can't find the initial admin password | It is printed **only on the run that created the account** | `docker logs dsh 2>&1 \| grep -A9 'first-boot admin credentials'`. If the log has rotated away: delete `<DSH_DATA_DIR>/auth/store.json`, `docker restart dsh` to regenerate (⚠ wipes all accounts and MFA), or set `DSH_ADMIN_PASSWORD` in `.env` and do that |
+| No password banner on first boot, yet login asks for one | The volume **already holds an account** (a prior manual dsh-remote install, or this is not the first boot) | The image deliberately **never overwrites existing accounts**: log in with your original credentials; if truly lost, delete `store.json` and recreate as above |
+| LAN access still returns 403 with the plugin installed | Browser holds a stale frontend that does not match the new plugin | Hard-refresh or reopen in a private window (server logs look normal in this case — not a failure) |
 | Settings page shows `settings are unavailable in this browser` | DSH design: settings are loopback-only | Not a blocker; change settings with curl from the host via `/api/settings.mutate` (see below) |
 | `crypto.randomUUID is not a function` | Accessing from a non-HTTPS / non-localhost origin (browser secure context) | Use `localhost`, an SSH tunnel, or a reverse proxy with HTTPS (see [02](02-authentication-remote-access.md)) |
 | Copying from the seed on first boot is slow | Windows + WSL bind mount crosses filesystems | Seconds on Linux; on Windows, use a docker named volume or wait for the first copy |
@@ -18,7 +21,9 @@
 When the settings page is unavailable, you can read and mutate settings from the host with curl.
 
 ```bash
-# 1. Log in and grab the cookie (only when dsh-remote is enabled; skip if not)
+# 1. Log in and grab the cookie (the auth plugin is enabled by default; skip if DSH_SETUP_REMOTE=off)
+#    Username defaults to admin; the password is in the first-boot log:
+#    docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 curl -s -c /tmp/dsh-cookies.txt -X POST http://127.0.0.1:3080/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"你的用户名","password":"你的密码"}'

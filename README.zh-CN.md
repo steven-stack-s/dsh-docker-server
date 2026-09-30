@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
 [![镜像构建](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml)
 [![GHCR 镜像](https://img.shields.io/badge/ghcr.io-dsh--docker--server-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker-server/pkgs/container/dsh-docker-server)
-[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.1.7--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
+[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.0--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
 [![MIT 许可证](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > 在**任意 Docker 环境**（Linux 服务器 / NAS / 云主机 / Docker Desktop）一键部署
@@ -20,7 +20,8 @@
 - **构建时锁版本 + 镜像内 seed**：构建时预装 dsh+pnpm 到 seed（`/opt/dsh-seed`），首次启动离线复制到 `/opt/dsh`（版本固定、秒级就绪）；seed 保留在镜像层，主程序损坏可离线恢复
 - **程序与镜像分离，容器内升级**：DSH 程序本体装在挂载卷，日常升级 = `docker exec dsh npm install -g @deepseek-ai/dsh@<版本> && docker restart dsh`，无需重建镜像。**升级镜像时 dsh 会自动跟进**：容器启动会比较镜像 seed 与卷内 dsh 的版本，seed 更新即同步（[详见 docs 03](docs/zh-CN/03-升级与维护.md)）
 - **数据全持久化**：程序 / 用户数据（会话、配置、插件、记忆库）/ 工作区三卷分离，备份 = 复制目录
-- **安全默认**：`dsh web` 刻意只监听 `127.0.0.1:3081`（官方安全设计），`socat` 把外部 `3080` 转发进去；默认内网直连，远程访问可加装账号密码 + MFA 认证
+- **默认就有访问控制**：内置 [dsh-remote](https://github.com/xgone/dsh-remote) 认证插件（账号密码 + MFA），首启自动创建 `admin` + **随机 16 位密码**并打印到首次启动日志（**只打印一次**）；插件以离线 seed 预置在镜像内，内网/NAS 也能开箱启用。要回到无认证的内网直连模式：`DSH_SETUP_REMOTE=off`
+- **安全默认**：`dsh web` 刻意只监听 `127.0.0.1:3081`（官方安全设计），`socat` 把外部 `3080` 转发进去
 - **多架构**：GitHub Actions 自动构建 `linux/amd64` + `linux/arm64`，发布到 `ghcr.io`
 
 **🛟 自愈体系 —— 确定性归因，守红线自动恢复**
@@ -42,10 +43,23 @@ cp .env.example .env            # 编辑 .env，填入 DEEPSEEK_API_KEY（其余
 # 2. 启动（首次启动从镜像内 seed 复制 DSH，秒级就绪）
 docker compose up -d
 
-# 3. 访问 —— docker logs dsh 会打印一次性 token；首次访问 http://<主机IP>:3080/?token=<token>（之后无需再带）
+# 3. 取初始管理员密码 —— 首启日志里只打印一次
+docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
+#    用户名 admin，密码为随机 16 位；用它登录 http://<主机IP>:3080
+#    （登录后请在「设置 → 登录与账号」改密并开启 MFA）
+
+# 4. 若界面提示需要一次性 token：docker logs dsh 里也会打印，形如
+#    http://<主机IP>:3080/?token=<token>（之后无需再带）
 ```
 
-> 💡 `.env.example` 只列了日常部署用得到的 12 项；自愈细节、资源调优、npm 镜像、密钥文件挂载等高级变量
+> 🔐 **认证默认开启**。首启会自动装好认证插件 `@xgone/dsh-remote` 并创建管理员 ——
+> 密码**只打印一次**，之后重启/重建容器都不会再显示（避免密码被写进每一次 `docker logs`）。
+> 忘记密码：删除 `<DSH_DATA_DIR>/auth/store.json` 后重启会重新生成（⚠ 会清掉所有账号与 MFA）。
+> 想自己定密码：`.env` 里设 `DSH_ADMIN_PASSWORD`（≥6 位，设了就不打日志）。
+> 想关掉认证（仅限完全可信的内网）：`.env` 里设 `DSH_SETUP_REMOTE=off`。
+> 详见 [docs/zh-CN/02-认证与远程访问.md](docs/zh-CN/02-认证与远程访问.md)。
+
+> 💡 `.env.example` 只列了日常部署用得到的项；自愈细节、资源调优、npm 镜像、密钥文件挂载等高级变量
 > 的默认值已写在 `docker-compose.yml` 的 `${VAR:-default}` 兜底里，需要时直接编辑 `docker-compose.yml`，
 > 或在 `.env` 追加同名变量覆盖。完整速查见 [docs/zh-CN/07-环境变量速查.md](docs/zh-CN/07-环境变量速查.md)。
 

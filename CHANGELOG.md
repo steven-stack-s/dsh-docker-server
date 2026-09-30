@@ -6,6 +6,66 @@
 
 ## [Unreleased]
 
+## [v0.6.0-dsh-0.2.0-rc.2] - 2026-09-29
+
+### Changed
+- **镜像锁定的 dsh 升级到 `0.2.0-rc.2`**（`ARG DSH_VERSION`）。首次从 0.1.7 线切到 **0.2.0** 线：
+  seed → 挂载卷 → entrypoint 监督的部署链路**未变**，`ver_gt` 正确判定 `0.2.0-rc.2 > 0.1.7-rc.2`。
+- **`docs/03` 的 dist-tag 快照更新为 2026-09-29 实测**：`latest → 0.1.7-rc.2`（原 `0.1.5-rc.3`）、
+  `next → 0.2.0-rc.2`（原 `0.1.7-rc.2`）、`alpha → 0.1.7-alpha.2`（不变）；README 中英徽章同步。
+
+### Added
+- **默认安装认证插件 `@xgone/dsh-remote`（`ARG REMOTE_PLUGIN_VERSION=0.3.5`）**，并在首启自动
+  创建一个管理员账号：用户名 `admin`（可用 `DSH_DEFAULT_ADMIN_USER` 改），密码为**随机 16 位**，
+  **只打印一次**到首次启动日志。此前默认无认证、仅内网直连 —— 一旦把 `3080` 暴露出去，任何人
+  打开页面就是一个拥有完整 agent 权限的会话；本版把"要不要保护"从"记得去装个插件"改成
+  "默认就有、可显式关掉"。
+  - **离线可用**：插件以 pnpm 同构形态预置在镜像内 `/opt/dsh-remote-seed`（构建期用真实 pnpm
+    安装，产出带 lockfile 的完整树 + `nodeLinker: hoisted`，与 profile 自身的布局一致），
+    首启由 entrypoint 复制进 profile —— **不依赖 npm registry**。这与 dsh 本体的 seed 机制同款，
+    保证内网/NAS 部署开箱即有认证（也避免了首启联网拖长冷启动、撞 `RESCUE_START_TIMEOUT`）。
+  - **密码只打印一次**：判据是账号库（`$DSH_HOME/auth/store.json`）是否已有账号，而不是容器启动
+    了几次 —— 否则密码会被写进每一次 `docker logs`，而日志常被转发、归档或贴进 issue。
+  - **不覆盖已有账号**：插件在账号库非空时忽略 `bootstrap` 配置并打 warn，用户自行改过的密码
+    不会被镜像重置。
+  - **不顶回旧版**：profile 里已有该插件时 entrypoint **不覆盖** —— 用
+    `dsh plugin add @xgone/dsh-remote@<更高版本>` 升过的版本会保留（镜像种子只负责"从无到有"，
+    与 dsh 本体的"seed 只升不降"约定刻意不同：插件升级一律走 `dsh plugin`）。
+  - **可关闭**：`DSH_SETUP_REMOTE=off` 回到历史行为（不装插件、不建账号、无认证层）。
+  - 新增 `scripts/remote-setup.sh`（整备逻辑，无顶层副作用、可单测）与 4 个环境变量
+    （`DSH_SETUP_REMOTE` / `DSH_DEFAULT_ADMIN_USER` / `DSH_ADMIN_PASSWORD` / `DSH_REMOTE_SEED`）。
+  - 构建参数可置空（`--build-arg REMOTE_PLUGIN_VERSION=`）以产出**不带该插件**的镜像。
+- **文档同步**：`docs/02`（中英）改写为"默认已启用认证"的叙事，新增关闭方式、密码找回、
+  手工升级与"托管块"说明；`docs/07`（中英）新增 §3.5 默认认证插件一节与 3 个构建参数；
+  `.env.example` 新增对应条目；`docker-compose.yml` 注入上述变量。
+
+### Notes
+- 本次升级经**全树 diff** 评估（`0.1.7-rc.2 → 0.2.0-rc.2`），**对本项目的契约面零破坏**：
+  - `dsh` CLI 参数定义逐字相同（`--profile` / `--patch` / `--dump-*`）；
+  - web 的 `--port` / `--no-open` / `--trusted-host`（`dsh-web-app` 的 `startup.js`）**两版逐字节相同**；
+  - `getDshRuntimeVersion`（`--version` 输出格式）、`PROFILE_TEMPLATES`（web 的 bundles 列表）、
+    `/data/dsh/profiles/<name>` 目录布局 **均未变**；
+  - `dsh-base` 的 `hmr` row 逐字节相同 → `scripts/hmr-off.yml` 的关闭叠加层继续有效
+    （门禁 `test-hmr-off.sh` 仍绿）。
+  - `dsh-base` rows 93 → 94（新增 typert 系列），无本项目关注的 row 被删；`dsh-web-app` 的
+    patch 增删（desktop 遥测行、schedule 族改为可选 bundle）对本容器 web profile 无影响。
+- **插件兼容性**：`@xgone/dsh-remote@0.3.5` 依赖的 `@deepseek-ai/cordis ^4.0.4` /
+  `schemastery ^3.18.4` 与 0.2.0-rc.2 精确匹配；它**未声明** DSH `peerDependencies`，故不触发
+  0.1.7-rc.1 起引入的插件 peer 版本门禁（`incompatible-version`）。
+- **实测验证**（本机真跑 0.2.0-rc.2 + 该插件 + 本仓库生成的 profile，非静态推断）：
+  进程零激活告警启动；未登录 `GET /` 返回登录页、`/api/*` 返回 **403 unauthorized**；
+  用预置的 admin 密码 `POST /auth/login` 返回
+  `{"ok":true,"user":{"username":"admin","role":"admin"}}` 并发下会话 cookie，
+  带 cookie 请求 `/auth/me` 得到 `authenticated:true, role:admin`；错误密码返回
+  **401 invalid credentials**；`$DSH_HOME/auth/store.json` 中账号为
+  `role:admin` + `protected:true` + scrypt 哈希。
+- ⚠ **升级后仍建议强制刷新浏览器**：0.2.0 重建了前端预构建资源（与 0.1.7-rc.2 同类情形）。
+  若浏览器持有旧前端，会表现为大片客户端 entry pending / `Failed to load plugins`，
+  **而服务端日志完全正常** —— 用无痕窗口或强制刷新即可，不是升级失败。
+- ⚠ **不要忽略首启日志里的密码横幅**：`docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'`。
+  若卷里已有旧账号（此前手工装过 dsh-remote 的部署），本版**不会**建号也不会打印密码，
+  沿用你原有的凭据即可。
+
 ## [v0.5.5-dsh-0.1.7-rc.2] - 2026-09-28
 
 ### Changed
