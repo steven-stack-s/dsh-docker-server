@@ -26,7 +26,24 @@
   ② 事后想再确认密码时，**日志里已经找不到**（设计上只打印一次），而用户不知道密码
   同时被明文写进了 profile 的 `cordis.patch.yml`，只能来问"这密码从哪来的"。
   现在：密码行**行尾即密码**（来源另起一行），并新增一行
-  `凭据存档 / stored : <路径>`，让看到密码的当下就知道日后去哪取回。
+  `stored   : <路径>`，让看到密码的当下就知道日后去哪取回。
+- **`remote-setup.sh` 的容器日志全部改为英文**。按本仓库既有约定（`docker logs` 可见的
+  输出一律英文 —— 面向任意环境运维/排障、便于贴 issue 与搜索；中文只用于仓库文档、
+  `rescue` CLI 提示与各类报告），首启凭据横幅此前是这文件里唯一的中文输出，现改为全英文：
+
+  ```
+   DSH first-boot admin credentials
+     username : admin
+     password : xxxx
+     source   : generated
+     stored   : /data/dsh/profiles/web/cordis.patch.yml
+                (mode 0600; plaintext kept there for later recovery)
+  ```
+
+  该文件其余 `elog` / `elog_warn` 输出本就已是英文，本次仅统一了这一处。
+  写进 `cordis.patch.yml` 的**文件注释**保持中文（那是写入用户文件的内容，不属容器日志）。
+  门禁：`test-remote-setup.sh` 新增「横幅不得含 CJK 字符」断言（用 node 精确判定，
+  避免 grep 的 locale 依赖）。
 
 ### Added
 - **`docs/04` 故障排查（中英）新增两条实测坑**：

@@ -145,7 +145,7 @@ docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 > docker exec dsh grep -A8 'id: remote' /data/dsh/profiles/web/cordis.patch.yml
 > ```
 >
-> The first-boot log banner prints this path as well (`凭据存档 / stored : ...`).
+> The first-boot log banner prints this path as well (`stored   : ...`).
 
 **Behaviour details** (each one is easy to misread, so they are spelled out):
 

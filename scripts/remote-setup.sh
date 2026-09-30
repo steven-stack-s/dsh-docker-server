@@ -283,8 +283,12 @@ remote_setup() {
   # ======== 首次启动的凭据横幅（只在这一条路径上打印）========
   # 用醒目的分隔线，因为它在 docker logs 里要和 dsh 的大段启动输出抢注意力。
   #
+  # 【输出语言必须是英文】本横幅进 docker logs，属"容器日志"范畴 ——
+  # 按本仓库约定，容器日志一律英文（面向任意环境的运维/排障、便于贴 issue 与搜索）；
+  # 中文只用于仓库内文档、rescue CLI 提示与各类报告。改动时请勿把中文写回这里。
+  #
   # 【密码必须独占行尾】真机 2026-09-30：原格式把密码写成
-  #     `密码 / password : xxxx   [generated]`
+  #     `password : xxxx   [generated]`
   # —— 密码后面紧跟三个空格与 `[generated]`，用户复制时极易带上尾部空格，
   # 或把密码里的大写字母 O 看成数字 0，于是反复登录失败并撞上限速（429）。
   # 故：密码行的**行尾就是密码**，来源另起一行，不给复制制造干扰。
@@ -294,17 +298,16 @@ remote_setup() {
   # 只能来问"这密码从哪来的"。故横幅里直接给出存档路径 —— 让看到密码的**当下**
   # 就知道日后去哪里取回，而不是等忘了再来找。
   elog '============================================================'
-  elog ' DSH 初始管理员账号 (first-boot admin credentials)'
-  elog "   用户名 / username : $_rs_user"
-  elog "   密码   / password : $_rs_pw"
-  elog "   密码来源 / source : $_rs_pw_source"
-  elog "   凭据存档 / stored : $_rs_patch"
-  elog '                        （权限 0600；忘记密码时可从此文件取回明文）'
-  elog ' 请在首次登录后立即修改密码，并开启 MFA（设置 → 登录与账号）。'
-  elog ' Change this password after the first login and enable MFA.'
-  elog ' 本密码只会打印这一次，重启容器不会再显示；'
-  elog ' 但上面的存档文件保留了明文凭据，忘记时从那里取回即可（切勿外传）。'
-  elog ' Printed ONCE; the archive file above keeps it for later recovery.'
+  elog ' DSH first-boot admin credentials'
+  elog "   username : $_rs_user"
+  elog "   password : $_rs_pw"
+  elog "   source   : $_rs_pw_source"
+  elog "   stored   : $_rs_patch"
+  elog '              (mode 0600; plaintext kept there for later recovery)'
+  elog ' Change this password and enable MFA right after the first login'
+  elog '   (Settings -> Login & Account).'
+  elog ' This password is printed ONCE; restarts will not show it again,'
+  elog '   but the archive file above keeps it, so you can recover it later.'
   elog '============================================================'
   rescue_log "remote-setup: bootstrapped admin '$_rs_user' ($_rs_pw_source); credentials archived at $_rs_patch (0600)"
   return 0

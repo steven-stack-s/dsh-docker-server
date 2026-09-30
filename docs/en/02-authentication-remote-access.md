@@ -48,7 +48,7 @@ The image ships the auth plugin and installs it on first boot — **no manual st
   ```
 
   The `bootstrap.username` / `bootstrap.password` values there are the initial credentials. The
-  first-boot log banner prints this path too (`凭据存档 / stored : ...`), so you can note it down the
+  first-boot log banner prints this path too (`stored   : ...`), so you can note it down the
   moment you see the password.
 - **If you really must reset** (e.g. the archive was erased too): delete
   `<DSH_DATA_DIR>/auth/store.json` and restart — a **fresh** random password is generated and printed.

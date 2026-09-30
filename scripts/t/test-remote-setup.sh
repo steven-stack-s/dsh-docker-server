@@ -141,19 +141,34 @@ grep -q 'id: remote' "$P2" || fail t2-patch-no-remote-row
 grep -q "username: 'admin'" "$P2" || fail t2-patch-no-username
 grep -q 'bootstrap:' "$P2" || fail t2-patch-no-bootstrap
 # 日志里的密码必须与写进 patch 的一致（否则用户拿到的是登不上的假密码）
-_pw2=$(printf '%s' "$out2" | sed -n 's/.*密码   \/ password : \([A-Za-z0-9]*\).*/\1/p' | head -n1)
+_pw2=$(printf '%s' "$out2" | sed -n 's/.*password : \([A-Za-z0-9]*\).*/\1/p' | head -n1)
 [ -n "$_pw2" ] || fail t2-password-not-printed "$out2"
 [ "${#_pw2}" = 16 ] || fail t2-printed-password-length "${#_pw2}"
 grep -q "password: '$_pw2'" "$P2" || fail t2-printed-mismatch-patch "printed=$_pw2"
 # 密码行必须"行尾即密码"：真机 2026-09-30 原格式尾部紧跟 `   [generated]`，
 # 用户复制时带上尾随空格、或把密码里的大写 O 看成数字 0，反复登录失败并撞上限速（429）。
-printf '%s' "$out2" | grep -qE "密码   / password : ${_pw2}$" \
+printf '%s' "$out2" | grep -qE "password : ${_pw2}$" \
   || fail t2-password-not-line-tail "密码行尾还挂着别的东西，复制必踩坑：$out2"
 # 必须告知凭据的持久存档位置：否则用户事后想再确认密码时无处可查。
 # （真机同一次：用户只能来问"这密码从哪来的"—— 因为日志只打印一次，
 #   而他不知道密码同时被写进了 profile 的 cordis.patch.yml。）
-printf '%s' "$out2" | grep -q '凭据存档 / stored' || fail t2-missing-archive-hint "$out2"
+printf '%s' "$out2" | grep -q 'stored   :' || fail t2-missing-archive-hint "$out2"
 printf '%s' "$out2" | grep -qF "$P2" || fail t2-archive-path-not-shown "$out2"
+# 横幅是**容器日志**，必须全英文（本仓库约定：docker logs 英文；中文只用于
+# 文档 / rescue CLI / 报告）。用 node 精确判定 CJK，避免 grep 的 locale 依赖。
+# ⚠ 切片必须用横幅的**两条分隔线**做边界：初版拿标题文字 "first-boot admin credentials"
+#   当锚点，而它落在标题行中间 —— 中文化后的前半句正好被切掉，门禁静默失效
+#   （变异测试「往标题里塞中文」时抓到）。用分隔线才能覆盖整块。
+_banner_cjk=$(printf '%s' "$out2" | node -e '
+let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+  const M="============";
+  const a=s.indexOf(M), b=s.lastIndexOf(M);
+  if(a<0||b<=a){console.log("banner-markers-not-found");return;}
+  const banner=s.slice(a,b+M.length);
+  const cjk=banner.match(/[\u4e00-\u9fff]/g);
+  if(cjk) console.log(cjk.join(""));
+});')
+[ -z "$_banner_cjk" ] || fail t2-banner-not-english "横幅里出现中文字符：$_banner_cjk"
 
 # ---- T3 二次启动（账号已存在）：不打印密码、不覆盖 ----
 H3="$T/h3"; mkprofile "$H3"; mkstore "$H3"
@@ -165,7 +180,7 @@ cat > "$H3/profiles/web/cordis.patch.yml" <<'UPF'
     key: keepme
 UPF
 out3=$(run_setup "$H3")
-if printf '%s' "$out3" | grep -q '密码   / password'; then
+if printf '%s' "$out3" | grep -q 'password :'; then
   fail t3-password-reprinted "password must NOT be printed when accounts already exist: $out3"
 fi
 printf '%s' "$out3" | grep -q 'admin bootstrap skipped' || fail t3-no-skip-log "$out3"
@@ -214,7 +229,7 @@ H7="$T/h7"; mkprofile "$H7"
 export ADMIN_PW='abc'
 out7=$(run_setup "$H7")
 grep -q "password: 'abc'" "$H7/profiles/web/cordis.patch.yml" && fail t7-short-password-accepted
-_pw7=$(printf '%s' "$out7" | sed -n 's/.*密码   \/ password : \([A-Za-z0-9]*\).*/\1/p' | head -n1)
+_pw7=$(printf '%s' "$out7" | sed -n 's/.*password : \([A-Za-z0-9]*\).*/\1/p' | head -n1)
 [ "${#_pw7}" = 16 ] || fail t7-fallback-not-16 "${#_pw7}"
 unset ADMIN_PW
 
