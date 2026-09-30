@@ -7,6 +7,44 @@
 ## [Unreleased]
 
 ### Fixed
+- **救生舱日志里的"原因"不再说谎（`auto fallback: self-heal exhausted` 曾是硬编码）**。
+  真机 2026-09-30：某实例重启后直接进救生舱，日志写着"自愈耗尽"，据此排查了很久 ——
+  但那一轮启动里**监督主循环压根没跑过**（日志中没有任何 attempt / 自愈输出），
+  真实情况是读到了一个**更早留下的陈旧标记**。
+  根因：`librescue.sh` 写标记时**记了**真实来源与时刻
+  （`{"requested":"<iso>","reason":"manual|self-heal exhausted"}`），
+  `entrypoint.sh` 读标记时却把 reason **写死**成 `self-heal exhausted`。
+  现在如实回读两个字段，并把**标记写入时刻**一并打进出参 ——
+  时刻远早于本次启动即可一眼判定"陈旧标记"，不必再靠推断。
+  标记损坏/缺字段时用兜底文案，但会**自曝是兜底**（`unreadable marker`），
+  不再伪装成"已确认的原因"。读标记的顺序也加了门禁：必须**先读后清**
+  （`rescue_lifeboat_clear` 会删掉文件）。
+- **首启凭据横幅：密码独占行尾 + 明确告知存档位置**。真机同一天踩到两个可用性问题：
+  ① 原格式 `密码 / password : xxxx   [generated]` 的密码尾部紧跟空格与 `[generated]`，
+  用户复制时带上尾随空格、或把密码里的大写 `O` 看成数字 `0`，反复登录失败并撞上
+  插件限速（`too many attempts; retry in 818s`）；
+  ② 事后想再确认密码时，**日志里已经找不到**（设计上只打印一次），而用户不知道密码
+  同时被明文写进了 profile 的 `cordis.patch.yml`，只能来问"这密码从哪来的"。
+  现在：密码行**行尾即密码**（来源另起一行），并新增一行
+  `凭据存档 / stored : <路径>`，让看到密码的当下就知道日后去哪取回。
+
+### Added
+- **`docs/04` 故障排查（中英）新增两条实测坑**：
+  - 登录报 `too many attempts; retry in Ns` → 这是插件限速（15 分钟 5 次失败），
+    **`docker restart dsh` 立即清除**（限速状态只在内存里），不必干等 N 秒；
+  - 找不到初始管理员密码 → **先去凭据存档取回**（`grep -A8 'id: remote' …/cordis.patch.yml`），
+    而不是直接删 `store.json` 重置（后者会清掉所有账号与 MFA）。
+  `docs/02` 与 `docs/07`（中英）同步把"凭据存档位置"提到显眼处。
+- **`scripts/t/test-lifeboat-marker.sh`**：新建 18 组断言，覆盖
+  librescue 写标记 / entrypoint 读标记的**跨文件契约**。它从 `entrypoint.sh` 里
+  **awk 提取真实代码段并执行**（不是手抄副本），断言 `manual` 标记不得被报成
+  "自愈耗尽"、必须带上写入时刻、标记必须被一次性消费、损坏标记走兜底且自曝。
+  已用变异测试双向验证：还原成硬编码即报 `FAIL-hardcoded-reason`，
+  把 clear 提到 read 之前即报 `FAIL-clear-before-read`。
+- `scripts/t/test-remote-setup.sh` 新增横幅断言：密码行必须"行尾即密码"、
+  必须打印凭据存档路径（同样经变异测试确认能抓到回归）。
+
+### Fixed
 - **构建期 `pnpm` 必须用绝对路径（`tag v0.6.0-dsh-0.2.0-rc.2` 构建失败的真因）**。
   该 tag 推上去后 `build-and-push-image` 的 **`Build and push` 步骤失败，exit code 127**
   （单测 job 全绿 —— 这正是本项目最忌讳的"绿着但已失效"）。根因：插件 seed 层里裸写了

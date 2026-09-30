@@ -282,16 +282,31 @@ remote_setup() {
 
   # ======== 首次启动的凭据横幅（只在这一条路径上打印）========
   # 用醒目的分隔线，因为它在 docker logs 里要和 dsh 的大段启动输出抢注意力。
+  #
+  # 【密码必须独占行尾】真机 2026-09-30：原格式把密码写成
+  #     `密码 / password : xxxx   [generated]`
+  # —— 密码后面紧跟三个空格与 `[generated]`，用户复制时极易带上尾部空格，
+  # 或把密码里的大写字母 O 看成数字 0，于是反复登录失败并撞上限速（429）。
+  # 故：密码行的**行尾就是密码**，来源另起一行，不给复制制造干扰。
+  #
+  # 【必须告知存档位置】同一次真机：用户事后想再确认密码，却在日志里找不到
+  # （设计上只打印一次），也不知道密码其实被写进了 profile 的 cordis.patch.yml，
+  # 只能来问"这密码从哪来的"。故横幅里直接给出存档路径 —— 让看到密码的**当下**
+  # 就知道日后去哪里取回，而不是等忘了再来找。
   elog '============================================================'
   elog ' DSH 初始管理员账号 (first-boot admin credentials)'
   elog "   用户名 / username : $_rs_user"
-  elog "   密码   / password : $_rs_pw   [$_rs_pw_source]"
+  elog "   密码   / password : $_rs_pw"
+  elog "   密码来源 / source : $_rs_pw_source"
+  elog "   凭据存档 / stored : $_rs_patch"
+  elog '                        （权限 0600；忘记密码时可从此文件取回明文）'
   elog ' 请在首次登录后立即修改密码，并开启 MFA（设置 → 登录与账号）。'
   elog ' Change this password after the first login and enable MFA.'
-  elog ' 本密码只会打印这一次；重启容器不会再显示。'
-  elog ' This password is printed ONCE; restarts will not show it again.'
+  elog ' 本密码只会打印这一次，重启容器不会再显示；'
+  elog ' 但上面的存档文件保留了明文凭据，忘记时从那里取回即可（切勿外传）。'
+  elog ' Printed ONCE; the archive file above keeps it for later recovery.'
   elog '============================================================'
-  rescue_log "remote-setup: bootstrapped admin '$_rs_user' ($_rs_pw_source); password printed once to container log"
+  rescue_log "remote-setup: bootstrapped admin '$_rs_user' ($_rs_pw_source); credentials archived at $_rs_patch (0600)"
   return 0
 }
 

@@ -440,9 +440,29 @@ if [ "${RESCUE:-0}" = "1" ]; then boot_lifeboat; fi
 
 # 自动降级（F7）：自愈彻底失败时留下的标记 —— 以干净最小 profile 起来（一次性：进入即清除，
 # 用户修好插件后直接 docker restart 就能回到正常 profile，不必再改 .env）。
+#
+# 【必须读出标记里的真实来源】真机 2026-09-30 被这条误导过：标记文件里明明记着
+# {"requested":"<时刻>","reason":"manual|self-heal exhausted"}（见 librescue.sh 的
+# rescue_lifeboat_request），这里却把 reason 写死成 "self-heal exhausted"。
+# 后果：用户手动 `rescue lifeboat request` 留下的陈旧标记，在日志里也显示成"自愈耗尽"，
+# 于是排查方向被整个带偏 —— 明明这轮启动里监督主循环（第 ⑧ 步）压根没跑过，
+# 日志却在说自愈失败。现在如实回读，并把标记的**写入时刻**一并打出，
+# 让"陈旧标记"一眼可辨（时刻 >> 本次启动时刻 = 不是这轮产生的）。
+_lb_state="$(state_dir 2>/dev/null || printf '%s/state' "${DSH_HOME:-/data/dsh}/.rescue")"
+_lb_file="$_lb_state/lifeboat-requested"
 if command -v rescue_lifeboat_requested >/dev/null 2>&1 && rescue_lifeboat_requested 2>/dev/null; then
+  # 先读后清：rescue_lifeboat_clear 会删掉该文件，顺序反了就什么都读不到
+  _lb_reason=$(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "$_lb_file" 2>/dev/null | head -n1)
+  _lb_when=$(sed -n 's/.*"requested":"\([^"]*\)".*/\1/p' "$_lb_file" 2>/dev/null | head -n1)
+  # 读不到（文件损坏 / 旧版标记没有该字段）时保留旧文案，但要标明是兜底值 ——
+  # 不能让它看起来像"已确认的原因"。
+  [ -n "$_lb_reason" ] || _lb_reason='self-heal exhausted (unreadable marker; assuming auto fallback)'
   rescue_lifeboat_clear
-  boot_lifeboat "auto fallback: self-heal exhausted"
+  if [ -n "$_lb_when" ]; then
+    boot_lifeboat "auto fallback: $_lb_reason [marker written $_lb_when]"
+  else
+    boot_lifeboat "auto fallback: $_lb_reason"
+  fi
 fi
 
 # ===================== 归因自愈编排 + 监督主循环（rescue-supervise）=====================

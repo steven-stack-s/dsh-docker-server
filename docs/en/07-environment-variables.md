@@ -137,6 +137,16 @@ account on first boot:
 docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 ```
 
+> 📌 **If the log has rotated away, that is fine**: the password is also written in clear text to
+> `$DSH_HOME/profiles/web/cordis.patch.yml` (mode 0600), so you can always recover it —
+> **no account reset needed**:
+>
+> ```bash
+> docker exec dsh grep -A8 'id: remote' /data/dsh/profiles/web/cordis.patch.yml
+> ```
+>
+> The first-boot log banner prints this path as well (`凭据存档 / stored : ...`).
+
 **Behaviour details** (each one is easy to misread, so they are spelled out):
 
 1. **The password is printed once.** The criterion is whether the account store has an account — not

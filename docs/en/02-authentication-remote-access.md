@@ -37,11 +37,25 @@ The image ships the auth plugin and installs it on first boot — **no manual st
 - **The password is printed once**, only on the run that actually creates the account. Restarts and
   container recreation never show it again — otherwise the password would land in every
   `docker logs` capture (and logs get forwarded, archived and pasted into issues).
-- **Lost the password?** Delete `<DSH_DATA_DIR>/auth/store.json` and restart: a fresh random password
-  is generated and printed. ⚠ This also wipes every account and all MFA configuration.
+- **★ Lost the password / the log is gone? Recover it from the credentials archive.** Besides being
+  logged, the first-boot password is **also written in clear text** to
+  `$DSH_HOME/profiles/web/cordis.patch.yml` (mode 0600, readable by root/owner only), so you can
+  retrieve it at any time — **no need to reset the account**:
+
+  ```bash
+  # Run on the host (docker exec defaults to root, so it can read the 0600 file)
+  docker exec dsh grep -A8 'id: remote' /data/dsh/profiles/web/cordis.patch.yml
+  ```
+
+  The `bootstrap.username` / `bootstrap.password` values there are the initial credentials. The
+  first-boot log banner prints this path too (`凭据存档 / stored : ...`), so you can note it down the
+  moment you see the password.
+- **If you really must reset** (e.g. the archive was erased too): delete
+  `<DSH_DATA_DIR>/auth/store.json` and restart — a **fresh** random password is generated and printed.
+  ⚠ This also wipes every account and all MFA configuration.
 - **Want your own password?** Set `DSH_ADMIN_PASSWORD=<password>` (≥ 6 chars) in `.env`. Nothing is
-  printed then. It only applies while the account store is empty — an existing account is never
-  overwritten.
+  printed then (handy when a password manager holds it). It only applies while the account store is
+  empty — an existing account is never overwritten.
 - **Want your own username?** Set `DSH_DEFAULT_ADMIN_USER=<name>` in `.env` (same empty-store-only
   rule).
 
