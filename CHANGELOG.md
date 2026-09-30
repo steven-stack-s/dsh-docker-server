@@ -66,6 +66,28 @@
 - 顺带修掉测试脚本自身的一个缺陷：`fail()` 在 `set -u` 下被只传一个参数调用时会以
   `parameter not set` 崩掉（掩盖真正被检测到的问题），改为 `fail() { echo "FAIL-$1${2:+: $2}"; …; }`。
 
+- **`test-script-modes.sh` 改为检查 git index 模式，修掉"本地绿、CI 红"的可执行位陷阱**。
+  发本版时 `main` 连续三次构建失败（`1584274` / `dbbc7cc` / `dcdcd88`），失败的**不是**
+  Docker 构建而是 `unit-tests` job —— 元凶是 `test-script-modes.sh`，而它在本地**永远通过**。
+
+  根因有两层，缺一不可：
+  1. 本仓库 `.git/config` 里是 **`core.filemode=false`**（bind mount / NAS 上常见），
+     git 会**忽略 chmod**：`chmod +x` 之后 `git add` **不记录**模式变化，
+     于是新增的 `scripts/t/test-lifeboat-marker.sh` 与 `test-dockerfile-hygiene.sh`
+     在 git index 里停在 `100644`（本地文件系统却是 `755`）。
+  2. 原门禁用 `[ -x "$file" ]` 检查 —— 那测的是**本地文件系统**，不是**别人 clone 到的**东西。
+     CI 按 index 的 644 落盘 → 门禁红；本地文件系统 755 → 门禁绿。
+     **这个门禁结构上不可能在本地发现该问题**，所以同一个坑已经踩过两次
+     （上一次是 `test-remote-setup.sh`，当时只手工 `git update-index --chmod=+x` 了事，
+     没有动门禁本身，于是这次又踩）。
+
+  现在门禁读 `git ls-files -s` 的 index 模式（= clone / CI checkout 后真正落盘的模式），
+  本地与 CI 判断一致；未纳入 git 的文件（本地临时脚本）退回文件系统检查，有兜底。
+  **本次修复当场在本地复现了失败**（报出两个 `git index mode=100644` 的文件），
+  修 `git update-index --chmod=+x` 后转绿 —— 这正说明门禁改动生效。
+  文件头也写清了正确修法：新增测试脚本要报红时用 `git update-index --chmod=+x`，
+  **不是** `chmod +x`。
+
 ### Added
 - **`docs/04` 故障排查（中英）新增两条实测坑**：
   - 登录报 `too many attempts; retry in Ns` → 这是插件限速（15 分钟 5 次失败），
