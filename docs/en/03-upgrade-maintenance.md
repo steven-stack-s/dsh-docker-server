@@ -68,15 +68,21 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-09-29) | Meaning |
+| tag | Points at (checked 2026-10-08) | Meaning |
 |---|---|---|
-| `latest` | `0.1.7-rc.2` | Stable recommendation |
-| `next` | `0.2.0-rc.2` | Candidate (**the version this image currently pins**) |
-| `alpha` | `0.1.7-alpha.2` | Preview |
+| `latest` | `0.2.0-rc.2` | Stable recommendation |
+| `next` | `0.2.0-rc.2` | Candidate (the rc line) |
+| `alpha` | `0.2.1-alpha.1` | Preview (**the version this image currently pins**) |
 
-> ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version, and never gets
-> the newest version (it is `0.1.7-rc.2`; the newest `0.2.0-rc.2` sits under `next`). Always pass the
-> full version: `@0.2.0-rc.2`. Verify with `docker exec dsh dsh --version`.
+> ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version (it is
+> `0.2.0-rc.2`; the newest `0.2.1-alpha.1` sits under `alpha`). Always pass the full version:
+> `@0.2.1-alpha.1`. Verify with `docker exec dsh dsh --version`.
+>
+> 📌 This image pins `0.2.1-alpha.1` to gain `--public-url` (advertised public root — see section 3.6
+> of [07 · Environment variables](07-environment-variables.md)). Note that **by stability line
+> alpha < rc**, so the image now tracks the preview line (by semver numeric order,
+> `0.2.1-alpha.1` > `0.2.0-rc.2`, so it is still a forward move). If you value stability more, override
+> `DSH_VERSION` back to `0.2.0-rc.2` — at the cost of losing `--public-url`.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

@@ -364,6 +364,50 @@ if [ -n "$DSH_TRUSTED_HOSTS" ]; then
   [ -n "$TRUSTED_ARGS" ] || elog '[entrypoint] WARN trusted Host allowlist produced no usable entry (all entries invalid?)'
 fi
 
+# --public-url（可选）：公告对外访问根，修「dsh 在容器/代理后面把 GUI 地址说成容器内
+#   127.0.0.1:$PORT_INNER」——日志 URL 行、模型系统提示、DSH_WEB_URL 三处都受影响。
+#   默认留空 = 不启用：容器猜不到宿主机对外地址（Docker 内网 IP 对外无意义），必须由用户显式填写。
+#   ★ 能力守卫（安全关键）：0.2.0-rc.2 及更早的 dsh **不认识**该选项，传了会以退出码 1
+#     启动失败（真机实测：`error: unknown option '--public-url'`）。在 set -e + 监督循环下，
+#     这会连锁消耗自愈预算、最坏把用同一份 seed dsh 的救生舱一起拖崩，用户将彻底失去 GUI。
+#     故只在 rescue_supports_public_url 判定通过时才追加该参数。
+#   【归因更正 2026-10-08】并非「dsh-cmdline 未开 allowUnknownOption」：dsh-cmdline 根本
+#     不声明任何选项（只做 exitOverride + configureOutput）；启动器 dsh/lib/bin.js 反而
+#     **明确开了** `.allowUnknownOption().passThroughOptions()`，未知选项是被**透传**给 app 的。
+#     真正报错的是 **web-app 的 startup program**（它未声明该 flag 且未开 allowUnknownOption）。
+#     结论不变（守卫必要），但别再按"启动器拦的"这个错误模型去删守卫。
+PUBLIC_URL_ARGS=""
+if [ -n "$DSH_PUBLIC_URL" ]; then
+  # 读卷内 dsh 的实际版本（与 seed 升级逻辑同款：sed 读 package.json，比 `dsh --version` 快且无副作用）
+  _pu_dsh_ver=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                  /opt/dsh/lib/node_modules/@deepseek-ai/dsh/package.json 2>/dev/null | head -n1)
+  if command -v rescue_supports_public_url >/dev/null 2>&1 && rescue_supports_public_url "$_pu_dsh_ver"; then
+    PUBLIC_URL_ARGS=$(rescue_public_url_args "$DSH_PUBLIC_URL")
+    if [ -n "$PUBLIC_URL_ARGS" ]; then
+      elog "[entrypoint] public URL: $DSH_PUBLIC_URL (dsh ${_pu_dsh_ver:-unknown})"
+    else
+      elog '[entrypoint] WARN DSH_PUBLIC_URL produced no usable entry (empty or invalid?); ignored'
+    fi
+  else
+    elog "[entrypoint] WARN DSH_PUBLIC_URL is set but dsh ${_pu_dsh_ver:-unknown} does not support --public-url; ignored"
+  fi
+fi
+
+# 浏览器入口提示：dsh 只监听容器内 127.0.0.1:$PORT_INNER，它打印的 URL 行与**给模型的系统
+#   提示**都指向该容器内地址（dsh 0.2.1 起才有 --public-url 可公告对外真实地址，见 DSH_PUBLIC_URL）。
+#   用户与容器内的 AI 都容易把 127.0.0.1:3081 当成可访问地址，于是出现"日志里的链接点不开"
+#   "模型给的地址打不开"。这里把宿主侧入口显式写进启动日志。提示本身不含任何凭据。
+#   位置约束：必须在 librescue.sh 被 source 之后（scripts/t/test-entrypoint-order.sh 会把
+#   "source 之前调用 rescue_*" 判为红灯 —— 那次真机事故就是这么漏掉白名单校验的）。
+if command -v rescue_web_entry_hint >/dev/null 2>&1; then
+  rescue_web_entry_hint "$SOCAT_PORT" "$PORT_INNER" | while IFS= read -r _entry_line; do
+    elog "[entrypoint] $_entry_line"
+  done
+else
+  # librescue.sh 缺失（精简/自建镜像）时的降级：仍给出入口，只是少了那句解释
+  elog "[entrypoint] web UI browser entry: http://<host-ip>:$SOCAT_PORT (dsh inside: 127.0.0.1:$PORT_INNER)"
+fi
+
 # 【2026-09-30 移除：曾在此把 profile 的 HMR 关掉（--patch hmr-off.yml）】
 # 原先的理由：HMR 依赖原生绑定（node-addon-require-builtin）提供的 loader hook，只读根 FS
 #   下 tmpfs 上 dlopen 失败 → dsh-hmr 抛 "--expose-internals is required" 使启动即崩。
@@ -421,7 +465,7 @@ boot_lifeboat() {
   elog "[entrypoint] booting clean lifeboat profile ($reason); no third-party plugins; data preserved"
   rescue_log "lifeboat enter: $reason"
   rescue_init_lifeboat
-  exec dsh --profile lifeboat --port $PORT_INNER --no-open $TRUSTED_ARGS
+  exec dsh --profile lifeboat --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-}
 }
 
 if [ "${RESCUE:-0}" = "1" ]; then boot_lifeboat; fi
@@ -466,5 +510,5 @@ if [ -n "$SUPERVISE" ]; then
   rescue_supervise
 else
   elog '[entrypoint] WARN rescue-supervise.sh missing; supervision disabled - exec dsh directly'
-  exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS
+  exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-}
 fi

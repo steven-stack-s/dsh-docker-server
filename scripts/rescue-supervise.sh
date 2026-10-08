@@ -10,6 +10,12 @@
 #   - librescue.sh 已 source（rescue_dir/evidence_dir/incident 等原语 + $HERE）
 #   - RESCUE_* 参数默认、RESCUE_DIAG / LOGTAG 已解析
 #   - elog() 与 TRUSTED_ARGS 已定义
+#   - PUBLIC_URL_ARGS 已定义（可空；" --public-url <url>" 或空串）。本文件内的 dsh 启动
+#     命令**统一用 ${PUBLIC_URL_ARGS:-} 引用**：既兼容独立 source 时的 set -u（未定义不报
+#     unbound），又保证与 entrypoint 自己那两处启动点的参数面一致 —— 漏掉任何一处都会让
+#     「对外地址公告」在**该路径**上静默失效（2026-10-08 评估发现：监督主循环 5 处曾全部
+#     漏传，而它是默认启动路径，用户看到日志说已生效、实际从未生效）。
+#     门禁：scripts/t/test-public-url-wiring.sh 静态断言本文件每处 dsh 启动点都含该引用。
 #
 # 【约定】本文件须兼容 set -u；仅定义函数（无顶层副作用），rescue_supervise()
 # 在函数内做全部状态初始化后进入监督循环，永不以 return 结束（内部 exec/exit）。
@@ -78,7 +84,7 @@ rescue_start_child() {
     # 证据链 tee 原样转发（stdout/stderr 都在里面）；代价是"正常 stdout"不落盘 —— 而崩溃根因
     # 几乎总在 stderr，进救生舱要看的就是它。外层打不开文件时 dash 会让命令根本不执行并返回
     # 失败（下方 if 因此判假），由 else 兜底。
-    if { ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS 1>&3 2>&4 ) & } \
+    if { ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-} 1>&3 2>&4 ) & } \
         4>"$LASTBOOT_FILE" 2>/dev/null; then
       child=$!
     else
@@ -86,7 +92,7 @@ rescue_start_child() {
       # 【为何是丢弃而不是 tee】tee 会把读取端挂在**同一个** fifo 上：两读端会瓜分字节，
       # 证据 dsh.log 变成随机半份、归因能力静默失效。
       mkdir -p "$RESCUE_DIR" 2>/dev/null || true
-      ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS >&3 2>&1 ) &
+      ( exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-} >&3 2>&1 ) &
       child=$!
     fi
   else
@@ -94,10 +100,10 @@ rescue_start_child() {
     # 关闭且此前没有任何救援动作），而 dash 在重定向打不开文件时会让命令**根本不执行** ——
     # 监督循环会一直空转到耗尽预算。故先尽力建目录；建不出来（只读卷）则退回纯容器日志。
     if mkdir -p "$RESCUE_DIR" 2>/dev/null; then
-      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS \
+      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-} \
         >"$LASTBOOT_FILE" 2>&1 &
     else
-      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS &
+      dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-} &
     fi
     child=$!
   fi
@@ -323,7 +329,7 @@ rescue_supervise() {
   # 时无法监督 -> 降级为原始前台 exec，保证慢启动的健康 dsh 不被误杀。
   if [ ! -f "$probe" ]; then
     elog '[entrypoint] probe-ready.js missing; supervision disabled - exec dsh directly'
-    exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS
+    exec dsh --profile "$RESCUE_PROFILE" --port $PORT_INNER --no-open $TRUSTED_ARGS ${PUBLIC_URL_ARGS:-}
   fi
   # ---- 状态初始化（归因自愈用；本文件由 entrypoint 监督循环 source，须兼容 set -u）----
   EVLOG=''; child=''; tee_pid=''; DIAG_JSON=''

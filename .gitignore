@@ -27,3 +27,7 @@ extract.mjs
 # 隔离工作区（git worktree）与 SDD 台账目录
 .worktrees/
 .superpowers/
+
+# 调查/评估产物（本地留存，不入库；与上面的台账目录同类）
+.scratch/
+.pkwork/

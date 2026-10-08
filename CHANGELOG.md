@@ -6,6 +6,72 @@
 
 ## [Unreleased]
 
+## [v0.6.2-dsh-0.2.1-alpha.1] - 2026-10-08
+
+### Changed
+- **DSH 升级到 `0.2.1-alpha.1`**（`Dockerfile` 的 `ARG DSH_VERSION`）。动机是拿到
+  `--public-url`（见下面的 `DSH_PUBLIC_URL`）。基于 81 个上游包的全量比对评估：
+  - **本项目依赖的关键契约逐字节未变**：`dsh-base` 的 patch 与 lib、CLI 的 `lib/`、
+    profile 的 pnpm 布局（`nodeLinker: hoisted`）、原生绑定 hook、`dsh.bundle.patch` 校验、
+    `/api` 信任围栏。耦合点清单影响分级为**阻断 0 / 高 0**。
+  - **两个候选高风险项经核实均不触发**：① 上游新增的 `RETIRED_BUNDLES` 自动改写 profile
+    manifest（只读根 FS 下可能写盘失败）—— 本项目的 web/lifeboat profile 只列
+    `dsh-base` + `dsh-web-app`，全仓库零引用该退役 bundle，短路条件成立、**不写盘**；
+    ② `dsh-hmr` 新增原生依赖 `node-addon-require-builtin` 并 hook Node 内部模块 ——
+    该绑定已在镜像内验证可用，且其依赖的 `node-addon-native-custom-loader` **正是既有
+    `NARB_DISABLE_NATIVE_CACHE=1` 所针对的加载器**，防护直接覆盖。
+  - ⚠ **稳定性线取舍**：按 semver 数字段 `0.2.1-alpha.1` > `0.2.0-rc.2`（前进），但按
+    稳定性线 **alpha < rc** —— 本镜像自此从 rc 线切到 alpha 线。dist-tag 亦印证：
+    `latest` / `next` 仍指向 `0.2.0-rc.2`。需要稳定线可覆盖 `DSH_VERSION` 回退。
+
+### Added
+- **对外访问根公告 `DSH_PUBLIC_URL`（容器场景的地址说反问题）**。容器内 dsh 只监听
+  `127.0.0.1:$PORT_INNER`，它打印的 URL 行与**给模型的系统提示**都指向这个容器内地址 ——
+  用户与容器内的 AI 都容易把 `127.0.0.1:3081` 当成可访问地址，于是出现"日志里的链接点不开"
+  "模型给的地址打不开"。新变量把真实对外地址交给 dsh `--public-url` 公告（影响打印的 URL 行、
+  自动打开、web-surface 提示词、`DSH_WEB_URL` 四处）。
+  - **能力守卫**：`--public-url` 是 dsh **0.2.1-alpha.1 起**才有的选项，更早版本不认识它 ——
+    实测 `dsh 0.2.0-rc.2 --public-url ...` 直接 `error: unknown option '--public-url'` 退出码 1。
+    在 `set -e` + 监督循环下这会连锁消耗自愈预算、最坏把用同一份 seed dsh 的救生舱一起拖崩。
+    故 `rescue_supports_public_url` 按卷内 dsh 实际版本决定是否追加；版本读不到/不可比时
+    **一律保守判"不支持"**（宁可少公告一次地址，也不能把一次必然的启动失败喂给自愈循环）。
+  - 输入按保守白名单校验（绝对 http(s)、无凭据、无查询/片段、无空白与 shell 元字符），
+    非法值丢弃并记审计日志 —— 与 `rescue_trusted_args` 同款，避免畸形值把启动变成 usage error。
+  - **它只做"公告"，不授予任何信任**（上游设计如此）：浏览器可见的 authority 仍须由
+    `DSH_TRUSTED_HOSTS` 声明（已装 dsh-remote 时由登录态覆盖），它也不配置监听器/路由/cookie。
+  - 浏览器入口提示：启动日志新增宿主侧入口行，并说明容器内地址为何点不开（不含任何凭据）。
+
+### Fixed
+- **`--public-url` 在默认启动路径上静默失效（本次改动之前的状态等于没交付）**。
+  `PUBLIC_URL_ARGS` 只拼进了 entrypoint 的两处**降级** exec，而**默认主启动路径**
+  `rescue_supervise()` 自己拼命令行 —— 5 处 dsh 启动点一处都没带上该参数。后果是
+  **静默失效 + 误导性日志**：用户设了 `DSH_PUBLIC_URL`，日志打印 `[entrypoint] public URL: ...`
+  看起来已生效，而真正拉起 dsh 的进程从未收到它。现 5 处全部补齐（`${PUBLIC_URL_ARGS:-}` 形式，
+  兼容 `set -u` 与独立 source）。
+  **为什么不写单测拦不住**：既有测试只测"参数构造函数本身"，没有任何测试断言"参数是否真的
+  拼进了命令行"——与 `test-entrypoint-order.sh` 注释里描述的事故模式同源（单测全绿、真机失效）。
+  故新增门禁 `scripts/t/test-public-url-wiring.sh`：静态断言**每一处** dsh 启动点都含该引用，
+  并已用变异测试确认它**确有牙**（去掉任意一处即红灯并报出行号）。
+- **`DSH_PUBLIC_URL` 对 compose 用户彻底不可达**。该变量既不在 compose 的 `environment`
+  白名单，也不在 `.env.example` / `docs/07` —— 而 README 主推 `docker compose up`，用户按文档
+  怎么填都无法启用。现已补齐全三处（compose 注入 + `.env.example` + 中英 `docs/07` 新增 3.6 节）。
+- **`test-compose-wiring.sh` 的裸 `$VAR` 检测盲区**（正是上一条逃过门禁的原因）。
+  门禁正则只认 `${VAR:-}` / `${VAR:?}` 形式，而 `DSH_PUBLIC_URL` 在 entrypoint 里只以
+  `[ -n "$DSH_PUBLIC_URL" ]` 这类裸引用出现 → "代码读它、compose 不注入、文档也没写"三项
+  **全部漏报而门禁恒绿**。现已补裸变量检测，并加了一条更耐用的排除规则：**凡代码里被赋值过的
+  变量名一律跳过**（内部派生变量如 `RESCUE_DIR="$DSH_HOME/.rescue"`、`RESCUE_DIAG` 由此自动
+  免疫，无需人肉维护白名单）。已用变异测试确认：把 `DSH_PUBLIC_URL` 的注入去掉即精确报错。
+- **`DSH_PUBLIC_URL_MIN_VERSION` 畸形值时静默退化为"全部拒绝"**（带尾随空格/`garbage`/空串
+  会让守卫判"不支持一切版本"，功能无声全灭且无任何告警）。失败方向虽安全（保守拒绝），
+  但"静默"本身就是要避免的：现与版本参数同款做字符集 + 形状双重校验，非法即回落默认值
+  并记一条日志。
+- **归因更正（注释与测试的前提写错了，守卫本身正确）**。原注释称「dsh-cmdline 未开
+  `allowUnknownOption`」——经代码核实**不成立**：`dsh-cmdline` 根本不声明任何选项
+  （只做 `exitOverride` + `configureOutput`）；启动器 `dsh/lib/bin.js` 反而**明确开了**
+  `.allowUnknownOption().passThroughOptions()`，未知选项是被**透传**给 app 的；真正报错的是
+  **web-app 的 startup program**。结论不变（守卫必要），但错误归因会诱导后人删掉守卫，
+  故修正 `entrypoint.sh` / `librescue.sh` / 两个测试共四处注释并写明正确模型。
+
 ## [v0.6.1-dsh-0.2.0-rc.2] - 2026-09-30
 
 ### Fixed

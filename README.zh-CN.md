@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
 [![镜像构建](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml)
 [![GHCR 镜像](https://img.shields.io/badge/ghcr.io-dsh--docker--server-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker-server/pkgs/container/dsh-docker-server)
-[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.0--rc.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
+[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--alpha.1-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
 [![MIT 许可证](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > 在**任意 Docker 环境**（Linux 服务器 / NAS / 云主机 / Docker Desktop）一键部署

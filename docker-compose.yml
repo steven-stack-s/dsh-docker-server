@@ -92,6 +92,22 @@ services:
       #   会把已认证请求的 Host 归一为 loopback）。
       #   逗号分隔，可带端口，如 "192.168.1.5:3080,app.xx.ugdocker.link"
       - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
+      # ★ 对外访问根（可选，留空=不启用；仅 dsh >= 0.2.1-alpha.1 生效）：
+      #   容器内 dsh 只监听 127.0.0.1，它打印的 URL 行与**给模型的系统提示**都指向容器内
+      #   地址（127.0.0.1:3081），用户和容器内的 AI 都会以为那是可访问地址 —— 于是出现
+      #   "日志里的链接点不开""模型给的地址打不开"。填此值后由 dsh --public-url 公告真实
+      #   对外地址（影响：打印的 URL 行、自动打开、web-surface 提示词、DSH_WEB_URL）。
+      #   ⚠ 它只做"公告"，**不授予任何信任**：浏览器可见的 authority 仍须由
+      #     DSH_TRUSTED_HOSTS 声明（或在已装 dsh-remote 认证插件时由登录态覆盖）。
+      #     它也不配置监听器/路由/cookie —— 外层代理那一段由反代负责。
+      #   格式：绝对 http(s) URL，可带路径前缀；不得含凭据(@)、查询/片段(?/#)、空白。
+      #   例：https://app.example.com/dsh/   或   http://192.168.1.50:3080/
+      #   更早版本的 dsh 不认识该选项，会被忽略并在日志给出 WARN（不会启动失败）。
+      - DSH_PUBLIC_URL=${DSH_PUBLIC_URL:-}
+      # --public-url 能力守卫的起点版本（默认 0.2.1-alpha.1，一般无需改）：
+      #   仅当卷内 dsh 版本 >= 此值时才追加 --public-url。留空用内置默认值。
+      #   畸形值会回落默认值并记一条日志。
+      - DSH_PUBLIC_URL_MIN_VERSION=${DSH_PUBLIC_URL_MIN_VERSION:-}
       # 救生舱（lifeboat）开关：RESCUE=1 时 entrypoint 进救生舱（回退到固定 dsh 版本）
       - RESCUE=${RESCUE:-0}
       # 自动干预总闸：off = 只诊断不自动改动插件树（与 RESCUE_SELFHEAL 取与）

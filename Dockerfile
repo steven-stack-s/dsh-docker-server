@@ -166,19 +166,30 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-09-29 核对 npm dist-tags）：
-#   latest -> 0.1.7-rc.2    （稳定推荐版）
-#   next   -> 0.2.0-rc.2    （本镜像锁定的版本）
-#   alpha  -> 0.1.7-alpha.2 （预览版）
-# 注：rc/alpha 线始终跑在 latest 之前（最新的是挂在 next 下的 0.2.0-rc.2）；
-#     latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在 next / alpha tag 下。
+# 当前三个 tag 的实测指向（2026-10-08 核对 npm dist-tags）：
+#   latest -> 0.2.0-rc.2    （稳定推荐版）
+#   next   -> 0.2.0-rc.2    （rc 线）
+#   alpha  -> 0.2.1-alpha.1 （本镜像锁定的版本）
+# 注：rc/alpha 线始终跑在 latest 之前；latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在
+#     next / alpha tag 下。
 # 用 latest 会带来两个真问题：
 #   1) 与 docker-compose.yml 的默认值不一致 —— 不传 DSH_VERSION 时，
 #      docker build 与 docker compose build 会产出不同 dsh 版本的镜像；
 #   2) 默认值随 npm 上的 tag 变动而静默漂移，同一份 Dockerfile 在不同时间构建出不同版本。
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
 # 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
-ARG DSH_VERSION=0.2.0-rc.2
+#
+# 【为什么锁 0.2.1-alpha.1（2026-10-08 评估后决定）】
+#   唯一动机是拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内 127.0.0.1」，
+#   见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。评估结论（81 包全量比对）：
+#   本项目依赖的关键契约**逐字节未变** —— dsh-base 的 patch/lib、CLI 的 lib、profile 的
+#   pnpm 布局（nodeLinker: hoisted）、原生绑定 hook、dsh.bundle.patch 校验、信任围栏。
+#   两个候选高风险项经核实**均不触发**：RETIRED_BUNDLES 不在本项目的 bundles 列表里
+#   （web/lifeboat profile 只列 dsh-base + dsh-web-app）；dsh-hmr 新增的原生依赖恰好被
+#   既有的 NARB_DISABLE_NATIVE_CACHE 覆盖，且该绑定已在镜像内验证可用。
+#   ⚠ 取舍：按 semver 数字段 0.2.1-alpha.1 > 0.2.0-rc.2，但**稳定性线是 alpha < rc** ——
+#     本镜像自此从 rc 线退回到 alpha 线（dist-tag 也印证：next/latest 仍指向 0.2.0-rc.2）。
+ARG DSH_VERSION=0.2.1-alpha.1
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。

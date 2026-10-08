@@ -182,6 +182,38 @@ docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 
 ---
 
+## 3.6 Advertised public root (--public-url)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DSH_PUBLIC_URL` | (empty) | The advertised public root; **empty = disabled**. Inside the container dsh listens on `127.0.0.1` only, and both the URL line it prints and the **system prompt handed to the model** name that in-container address (`127.0.0.1:3081`) — hence "the link in the log won't open" and "the address the model gave me won't open". Set the real external address to have dsh `--public-url` advertise the correct URL. |
+| `DSH_PUBLIC_URL_MIN_VERSION` | `0.2.1-alpha.1` | Capability-guard floor, normally left alone. `--public-url` is appended only when the dsh version in the volume is ≥ this value; earlier dsh **does not know** the option and exits 1 on it, chaining into the self-heal budget. A malformed value falls back to the default and logs one line. |
+
+**What it changes** — exactly four outputs: the printed startup URL line, the default-browser
+handoff, the web-surface prompt (the one given to the model), and the `DSH_WEB_URL` environment
+variable. The printed and opened forms carry the process credential; the other two are clean URLs.
+
+> ⚠ **It only *advertises* — it grants no trust.** The browser-visible authority must still be named
+> with `DSH_TRUSTED_HOSTS` (or covered by a signed-in session when `dsh-remote` is installed). It
+> **configures no listener, routing, or cookie scope** — the external leg belongs to your reverse
+> proxy. The two settings are **orthogonal**: setting `DSH_PUBLIC_URL` does not admit that Host.
+
+**Format**: an absolute http(s) URL, optionally with a path prefix; it must **not** carry
+credentials (`@`), a query or fragment (`?`/`#`), or whitespace. Invalid values are dropped with a
+`WARN` line in the startup log.
+
+```bash
+# reverse proxy with a path prefix
+DSH_PUBLIC_URL=https://app.example.com/dsh/
+# direct LAN access (IP + host-side port)
+DSH_PUBLIC_URL=http://192.168.1.50:3080/
+```
+
+> 📌 Once set, `DSH_WEB_URL` inside the agent's bash is **no longer the loopback address**. Any
+> script relying on it for a local liveness probe needs adjusting.
+
+---
+
 ## 4. Toolchain
 
 | Variable | Default | Meaning |

@@ -57,6 +57,102 @@ rescue_trusted_args() {
   printf '%s' "$_th_out"
 }
 
+# 判断给定 dsh 版本是否支持 --public-url —— 追加该参数前的**能力守卫**。
+# 【为什么必须有】0.2.0-rc.2 及更早**不认识**该选项，未知选项会以退出码 1 启动失败
+# （真机实测：`error: unknown option '--public-url'`）；而本项目的监督循环会把"启动失败"
+# 当崩溃反复重试、消耗自愈预算，最坏连救生舱一起拖崩 —— 而救生舱用的是同一份 seed dsh。
+# 那等于用户彻底失去 GUI 与自救入口。
+# 【归因更正 2026-10-08】报错**不是**「dsh-cmdline 未开 allowUnknownOption」：
+#   - dsh-cmdline 根本不声明任何选项（只做 exitOverride + configureOutput）；
+#   - 启动器 dsh/lib/bin.js 明确开了 `.allowUnknownOption().passThroughOptions()`，
+#     未知选项是被**透传**给 app 的；
+#   - 真正报错的是 **web-app 的 startup program**（未声明该 flag 且未开 allowUnknownOption）。
+#   结论不变（守卫必要且正确），但别再按"启动器拦的"这个错误模型去删守卫。
+# 【保守原则】版本为空、非版本串、或 ver_gt 不可用时一律判"不支持"：宁可少公告一次地址，
+# 也不能把一次必然的启动失败喂给自愈循环。
+# 【依赖】ver_gt 由 scripts/vercmp.sh 提供（entrypoint 已 source）。此处刻意解耦为"缺失即
+# 保守拒绝"，避免 vercmp.sh 加载顺序变化时静默放行。
+# 参数：$1 = 待判定的 dsh 版本；支持起点可用 DSH_PUBLIC_URL_MIN_VERSION 覆盖。
+rescue_supports_public_url() {
+  _sp_ver="$1"
+  _sp_min="${DSH_PUBLIC_URL_MIN_VERSION:-0.2.1-alpha.1}"
+  # 【下限同样必须校验 2026-10-08】畸形下限（带尾随空格 / garbage / 空串）会让 ver_gt
+  # 静默判"不支持一切版本" —— 功能无声全灭且无任何告警。失败方向虽安全（保守拒绝），
+  # 但"静默"本身就是要避免的：宁可回落默认值并留一条日志。
+  # 与 $_sp_ver 同款两道校验：字符集 + 形状（数字.数字 开头）。
+  case "$_sp_min" in
+    *[!0-9A-Za-z.-]*|[!0-9]*.[!0-9]*)
+      rescue_log "DSH_PUBLIC_URL_MIN_VERSION '$_sp_min' is not a version; falling back to 0.2.1-alpha.1"
+      _sp_min='0.2.1-alpha.1' ;;
+  esac
+  [ -n "$_sp_ver" ] || return 1
+  command -v ver_gt >/dev/null 2>&1 || return 1
+  # 先挡掉非版本字符（如 "garbage"），再要求形如 数字.数字 开头（如 "v0.2.1" 会被拒）——
+  # ver_gt 内部用 test -gt 比较数字段，喂进非数字会直接报 integer expression expected。
+  case "$_sp_ver" in
+    *[!0-9A-Za-z.-]*) return 1 ;;
+  esac
+  case "$_sp_ver" in
+    [0-9]*.[0-9]*) : ;;
+    *) return 1 ;;
+  esac
+  # 支持 <=> 起点不"严格大于"该版本。用 if 而非 `&&`：entrypoint 可能开启 set -e，
+  # 失败的 && 语句会直接终止启动。
+  if ver_gt "$_sp_min" "$_sp_ver"; then
+    return 1
+  fi
+  return 0
+}
+
+# 解析 DSH_PUBLIC_URL -> "--public-url <url>"（空 -> 空输出）。
+# 【为什么要先校验】该 flag 用于公告对外访问根，修的是「dsh 在容器/代理后面把 GUI 地址
+# 说成容器内 127.0.0.1:3081」——日志 URL 行、模型系统提示、DSH_WEB_URL 三处都受影响。
+# dsh 自带的 parsePublicUrl 会拒绝畸形值，但拒绝方式是 usage error + exit 1，而本项目里
+# 「启动失败」会连锁消耗 RESCUE_START_TIMEOUT 与自愈预算，最坏把用同一份 seed dsh 的
+# 救生舱一起拖崩。故与 rescue_trusted_args 同款：先拦掉致命输入，非法即丢弃并记审计日志。
+# 【只接受单个值】public-url 是单值（不像 --trusted-host 可重复），故不做逗号切分。
+# 【校验强度】采用保守白名单字符集：非 ASCII 路径（中文/百分号编码）会被拒绝 —— public-url
+# 指向的是部署入口前缀，用不到这些字符，而放行它们的风险大于收益。
+rescue_public_url_args() {
+  _pu="$1"
+  [ -n "$_pu" ] || { printf '%s' ''; return 0; }
+  # 1) 必须是绝对 http(s) URL
+  case "$_pu" in
+    http://*|https://*) : ;;
+    *) rescue_log "public url ignored (must be an absolute http(s) URL): $_pu"; printf '%s' ''; return 0 ;;
+  esac
+  # 2) 凭据：dsh 的 parsePublicUrl 明确拒绝 userinfo（含空用户名），这里给出更准确的日志
+  case "$_pu" in
+    *@*) rescue_log "public url ignored (must not carry credentials): $_pu"; printf '%s' ''; return 0 ;;
+  esac
+  # 3) 查询 / 片段：dsh 同样明确拒绝
+  case "$_pu" in
+    *\?*|*\#*) rescue_log "public url ignored (must not carry a query or fragment): $_pu"; printf '%s' ''; return 0 ;;
+  esac
+  # 4) scheme 之后必须真有主机名（"http://" 后直接 / 或为空）
+  case "${_pu#*://}" in
+    ''|/*) rescue_log "public url ignored (missing host): $_pu"; printf '%s' ''; return 0 ;;
+  esac
+  # 5) 字符集兜底：挡掉空白、$() / 反引号、通配符、引号、反斜杠等。这些一旦原样进命令行，
+  #    要么被拆成多个参数、要么被 glob 展开成当前目录的文件名。
+  case "$_pu" in
+    *[!A-Za-z0-9._:/~-]*) rescue_log "public url ignored (invalid characters): $_pu"; printf '%s' ''; return 0 ;;
+  esac
+  printf '%s' " --public-url $_pu"
+}
+
+# 浏览器入口提示（每行一条，供调用方逐行交给 elog）。
+# 【为什么需要】dsh 在容器内只监听 127.0.0.1:$2，它打印的 URL 行与**给模型的系统提示**
+# 都指向这个容器内地址（dsh 0.2.1 起才有 --public-url 可公告对外真实地址）。用户与容器内
+# 的 AI 都容易把 127.0.0.1:3081 当成可访问地址，导致"日志里的链接点不开""模型给的地址
+# 打不开"这类困惑。这里把宿主侧入口形态与容器内地址的差异显式写进启动日志。
+# 【不含凭据】dsh 打印的启动 URL 带进程 token，本提示刻意不含任何凭据，可安全留在日志里。
+# 参数：$1 = 宿主侧对外端口（socat 监听）；$2 = dsh 容器内监听端口。
+rescue_web_entry_hint() {
+  printf '%s\n' "web UI browser entry: http://<host-ip>:$1"
+  printf '%s\n' "  (in-container address 127.0.0.1:$2 is what dsh prints and gives to the model; not reachable from your browser)"
+}
+
 rescue_load_api_key() {
   [ -n "${DEEPSEEK_API_KEY_FILE:-}" ] || return 0
   if [ ! -r "$DEEPSEEK_API_KEY_FILE" ]; then

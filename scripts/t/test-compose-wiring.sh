@@ -30,6 +30,24 @@ const code=files.map(f=>fs.readFileSync(path.join(R,f),"utf8")).join("\n");
 const vars=new Set();
 for(const m of code.matchAll(/\$[{]([A-Z_][A-Z0-9_]*)[:\-}]/g)) vars.add(m[1]);
 for(const m of code.matchAll(/process\.env\.([A-Z_][A-Z0-9_]*)/g)) vars.add(m[1]);
+// 【2026-10-08 补盲区】裸 $VAR 形式（无 ${} 包裹）此前完全不被检测 —— 实测证据：
+// DSH_PUBLIC_URL 在 entrypoint 里只以 `[ -n "$DSH_PUBLIC_URL" ]` / 传参形式出现，不匹配上面的
+// ${VAR:-} 正则，于是"代码读它、compose 不注入、文档也没写"三项全漏报，功能对 compose 用户
+// 彻底不可达而门禁恒绿。这类"门禁漏报但功能坏了"的盲区必须封死。
+//
+// 【精确性】裸变量检测必须避开脚本**内部派生**变量，否则全是误报。实测两个典型：
+//   RESCUE_DIR  ← RESCUE_DIR="$DSH_HOME/.rescue"   由 DSH_HOME 派生
+//   RESCUE_DIAG ← 探测 diagnose.js 是否存在的结果
+// 二者的共同点：**在代码里被赋值过**，因此不可能是"用户必须在 compose 里注入"的配置项。
+// 故：凡在源码中出现 `NAME=` / `NAME:=` / `export NAME=` 赋值形式的变量名，一律跳过检测。
+// 这条规则比逐个人肉加白名单更耐用 —— 未来新增内部派生变量会自动免疫。
+const assigned=new Set();
+for(const m of code.matchAll(/(?:^|[\s;&|({])(?:export\s+)?([A-Z_][A-Z0-9_]*)=/gm)) assigned.add(m[1]);
+const BARE=/(^|[^$\w])\$([A-Z_][A-Z0-9_]*)\b(?![:=])/gm;
+for(const m of code.matchAll(BARE)){
+  if(assigned.has(m[2])) continue;   // 代码自己赋值的 = 内部变量，不是配置项
+  vars.add(m[2]);
+}
 const compose=fs.readFileSync(path.join(R,"docker-compose.yml"),"utf8");
 const injected=new Set([...compose.matchAll(/^\s*-\s*([A-Z_][A-Z0-9_]*)=/gm)].map(m=>m[1]));
 const envex=fs.readFileSync(path.join(R,".env.example"),"utf8");
