@@ -1,0 +1,312 @@
+# ============================================================================
+# Cloudflare Tunnel（cloudflared）—— dsh 的**可选**对外接入层（默认不部署）
+#
+# ✅ 已于 2026-10-09 在真机全流程验证通过（Cloudflare 自建域名 + Docker）：
+#   隧道链路本身（建隧道 → 路由 `http://dsh:3080` → Registered tunnel connection → 公网可访问）
+#   与本文件相对验证版的两处改造（profiles 门控、`:?` → `:-`）**都已实跑确认**。选型依据
+#   （compose-spec 关于插值与 profile 过滤的原文）保留在 §3，作为"为什么这样选"的记录。
+#
+# 【定位：这是"附加层"，不是"覆盖层"】
+#   本文件不覆盖主 compose 的任何字段，只**新增**一个 cloudflared 服务；
+#   主 compose 的行为一字不变。
+#
+# 【默认不部署 —— 三条防线，任何一条都足够】
+#   ① `profiles: [cloudflare]`：不带 `--profile cloudflare` 时 cloudflared 被
+#      compose 忽略，`docker compose up -d`（上游快速开始里的那条命令）
+#      **连容器都不会创建**。用户不动手就绝不会多出一个对外暴露面。
+#   ② 变量不强制：`TUNNEL_TOKEN` 用 `:-` 兜底而非 `:?`（见 §3），
+#      没配 token 的用户连主服务都照常起。
+#   ③ 不定义网络、不映射端口：即使误启用，它也只是一个主动出站的小容器。
+#
+# 【为什么单独一个文件，而不是塞进 docker-compose.yml】
+#   cloudflared 与 dsh 的生命周期、升级节奏、失败域完全不同：隧道挂了不该连累 dsh，
+#   dsh 升级也不该顺带重建隧道容器。更关键的是 —— **主 compose 没有 profile**，
+#   把 cloudflared 塞进去等于给**所有**用户强加一个默认启动的外部依赖
+#   （还得额外拉云厂商镜像），这与"可选、默认不部署"的诉求直接冲突。
+#   独立成文件后，compose 项目名仍是主文件所在目录（同一个项目、同一个默认网络），
+#   因此 `http://dsh:3080` 的服务名解析照常可用 —— 这是本方案成立的前提。
+#
+# 【快速开始】
+#   1. Cloudflare Dashboard 建隧道、拿 token、配好 Routes（见 §2，坑最多的就是这步）
+#   2. .env 里填 TUNNEL_TOKEN（本仓库 .env.example 末尾已给出条目模板）
+#   3. docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml \
+#        --profile cloudflare up -d
+#   4. 把上面命令原样换成 logs：
+#        docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml \
+#          --profile cloudflare logs cloudflared
+#      看到 4 条 `Registered tunnel connection` 即成功。
+#
+# 【日常维护 / 停止】先定义别名，省得每次重敲两个 -f：
+#     DC='docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml --profile cloudflare'
+#     $DC ps                       # 看状态
+#     $DC logs -f cloudflared      # 看日志
+#     $DC pull cloudflared && $DC up -d cloudflared   # 升级 cloudflared 镜像
+#     $DC stop cloudflared         # 只停隧道，dsh 继续跑
+#
+#   要**彻底不部署**：命令里去掉 `--profile cloudflare` 即可 —— cloudflared 会从
+#   project model 里消失（已在跑的容器需 `$DC down` 或 `docker rm -f dsh-cloudflared` 收尾）。
+#   ⚠ `restart: unless-stopped` 只保证"容器已存在时"开机自恢复；它**不会**让一份
+#     没被启用的 compose 在重启后突然拉起 cloudflared。
+# ============================================================================
+
+
+# ============================================================================
+# §1 网络拓扑（先看懂这张图再动手）
+#
+#   浏览器 ──HTTPS(443)──> Cloudflare 边缘 ──已建立的出站隧道──> cloudflared 容器
+#                                                                      │
+#                                                         http://dsh:3080（compose 服务名）
+#                                                                      v
+#                                        dsh 容器 socat(0.0.0.0:3080) ──> dsh web(127.0.0.1:3081)
+#
+#   为什么这条路走得通（三段各自独立，缺一不可）：
+#   - cloudflared 与 dsh 同属一个 compose 项目 → 同一个默认 bridge 网络
+#     → cloudflared 里 `dsh` 这个名字由 Docker 内嵌 DNS 解析成 dsh 容器 IP。
+#   - dsh 容器内的 socat 监听 0.0.0.0:3080，是**唯一**跨容器可达的入口。
+#   - dsh web 本体只监听 127.0.0.1:3081（安全设计，见主 compose 顶部说明），
+#     所以任何"绕开 socat 直连 3081"的想法都会失败。
+# ============================================================================
+
+
+# ============================================================================
+# §2 Cloudflare 侧：Service URL 必须填 http://dsh:3080（真机实测踩坑，2026-10-09）
+#
+#      http://  dsh  :3080
+#      └─┬──┘  └┬┘  └─┬─┘
+#        │      │     └─ socat 端口。填 3081 会被拒 —— 它只绑容器内回环，
+#        │      │        跨容器连接根本到不了。
+#        │      └─ **compose 服务名**。填 localhost / 127.0.0.1 必然 502：
+#        │          那是 cloudflared 容器自己的回环，跟 dsh 没有半点关系。
+#        └─ 协议前缀。新版表单强制校验，只填 `dsh:3080` 会直接报
+#              "Invalid service URL format (must start with protocol...)"
+#
+#   一句话记法：**内网这一段是 http，外网那一段才是 https** ——
+#   TLS 在 Cloudflare 边缘就终结了，隧道里跑的是明文 HTTP。
+#
+#   新版 Dashboard（2026-10-09 实测）路径：隧道详情 → `Routes` → `Add a route`
+#   → 选 `Published application`（不要选 `Private hostname`，那是 WARP 客户端专用）。
+#   旧版界面里这个标签叫 `Public Hostname`，语义完全等价。
+#
+#   保存后到 DNS → Records 核对：应自动出现一条指向 `<Tunnel ID>.cfargotunnel.com`
+#   的 CNAME。**这条记录出现 = 路由配好了**，比翻任何日志都直观。
+#
+#   Token 在哪拿：创建隧道时选 `Cloudflared` → `Install cloudflared connector`
+#   → 把 `Select Operating System` **手动切成 Docker** → 复制 `--token` 后面的
+#   那串（`eyJ` 开头）。不切的话默认给你浏览器所在系统的安装包，页面上找不到 token。
+# ============================================================================
+
+
+# ============================================================================
+# §3 为什么 TUNNEL_TOKEN 用 `:-` 而不是 `:?`（★ 本文件最容易改错的一行）
+#
+#   验证版（2026-10-09 测试包）用的是强制语法：
+#       TUNNEL_TOKEN=${TUNNEL_TOKEN:?请在 .env 中设置 TUNNEL_TOKEN}
+#   那个写法在**测试包**里是合理的：单文件、专用场景、就是要"没配 token 就当场报错"。
+#   但进了本仓库必须改成 `:-`。依据是 compose-spec 规范，而不是猜测：
+#
+#   ① 【插值早于 profile 过滤 —— 这是决定性的一条】
+#      compose-spec 的 12-interpolation.md 写明：变量替换适用于 compose 文件里的任何值，
+#      且**在按文件合并（merge）之前**就已应用。也就是说"插值"属于**读文件、构建
+#      project model** 这一步，而不是"决定起哪个容器"那一步。
+#      后果：哪怕你压根没打算开隧道，只要命令行里挂了
+#      `-f docker-compose.cloudflare.yml`，`docker compose config` / `ps` / `up -d`
+#      全都会因为缺 token 而失败。于是"忘了配 token"这个**只该影响隧道**的失误，
+#      被升级成"整个 compose 命令都跑不动" —— 对刚 clone 仓库、只是想跑 dsh 的用户
+#      完全不可接受。
+#
+#   ② 【空值同样触发，且更隐蔽】
+#      同一节还写明 `:?` 的判据是"**未设置或为空**"（unset or empty）。
+#      所以 `.env` 里留了一行 `TUNNEL_TOKEN=`（从模板复制过来、没填干净）也会报错，
+#      而用户会以为是 dsh 坏了。这一点在实际部署里比"完全没写"更常见。
+#
+#   ③ 【`:-` 在两种行为下都安全】
+#      `${VAR:-}` 在变量未设置时求值为空串，在"未设置"与"为空"两边都不报错。
+#      **无论 compose 是否对未启用 profile 的服务做插值，结论都一样：不会炸。**
+#      这是纯保守选择：赌对了省事，赌错了也不付出代价。所以本文件不去赌
+#      "profiles 会不会跳过插值"这种实现细节。
+#
+#   ④ 【代价可控，且有兜底】
+#      空 token 的后果是 cloudflared 启动后立刻报 `unauthorized` 或提示 token 为空
+#      并退出（`restart: unless-stopped` 会持续重试但始终起不来，**dsh 完全不受影响**）。
+#      排查入口很明确，不会变成"静默失败"：
+#        docker compose ... logs cloudflared | grep -i 'unauthorized\|token'
+#      因此这里把 value 写成**空串**而不是省略该行：让 cloudflared 自己去报
+#      "token 为空"，比让 compose 报一个跟隧道无关的错更好定位。
+#
+#   ⚠ 若你**想要**旧的强校验体验（单机自用、就想让 compose 当场拦住自己），
+#     更合适的做法不是在文件里改回 `:?`（那会波及所有用户），而是在**调用侧**加前置检查：
+#       [ -n "$(grep -E '^TUNNEL_TOKEN=.+' .env)" ] || { echo '未配置 TUNNEL_TOKEN'; exit 1; }
+#     这样"缺配置"的报错范围被限制在隧道这一层，不会波及 dsh。
+# ============================================================================
+
+
+# ============================================================================
+# §4 §3 的依据与它今天的地位
+#
+#   §3① 的论证依据是 compose-spec 规范原文。**该行为已在真机实测确认**（2026-10-09），
+#   故 §3 现在是"当初为什么这样选"的记录，而不是一条待验证的推断 —— 选 `:-` 依然正确，
+#   理由是它**不依赖**"未启用 profile 时是否跳过插值"这一实现细节，实测只是把这条
+#   保守选择又确认了一遍。
+#
+#   下面两条命令**保留**下来，作为后人改动本文件时的回归手册（不是"待办的自证"）：
+#
+#     # A) 不挂本文件：不带 token 也必须成功
+#     docker compose -f docker-compose.yml config >/dev/null && echo OK-A
+#     # B) 挂上本文件但**不带 --profile**：也应成功，且输出里不应出现 cloudflared
+#     docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml config \
+#       | grep -q cloudflared && echo '异常：cloudflared 被解析进来了' || echo OK-B
+#
+#   B 打印 OK-B = profile 过滤发生在渲染之前；打印"异常" = config 会把被忽略的服务也渲染
+#   出来，此时 `:-` 就是唯一的保险。**两种结果都不影响本文件可用性** —— 这也是当初不赌
+#   该实现细节的原因。
+# ============================================================================
+
+
+# ============================================================================
+# §5 安全前提（暴露到公网前对照检查，任一不满足先别启动隧道）
+#
+#   [ ] .env 保持 `DSH_SETUP_REMOTE=on`（本仓库默认值）
+#       —— 这是公网暴露**唯一**的认证防线。关掉它 = 把一台拥有完整 agent 权限的
+#          机器挂到公网上，任何人打开页面就是一个已登录会话。
+#   [ ] 首次登录后**立刻开启 MFA（TOTP）**：设置 → 登录与账号 → 双重验证。
+#       没有 Cloudflare Access 时，这是最核心的一道防线。
+#   [ ] .env 权限 600（`chmod 600 .env`），且 **TUNNEL_TOKEN 绝不进 git**
+#       （本仓库 .gitignore 已忽略 .env）。token 泄露 = 别人能把流量引到自己的源站。
+#   [ ] 建议填 DSH_PUBLIC_URL=https://<你的域名>/（结尾带斜杠），否则日志与
+#       给模型的系统提示仍指向容器内 127.0.0.1:3081，会出现"日志里的链接点不开"
+#       "模型给的地址打不开"。
+#   [ ] **不要**填 DSH_TRUSTED_HOSTS。默认装的认证插件 @xgone/dsh-remote 登录后
+#       其 trustProxy 会把 Host 归一为 loopback，隧道域名天然放行；填了是多余的。
+#       （反过来：若你把 DSH_SETUP_REMOTE 关了，就必须自己填隧道域名，否则 /api 403。）
+#   [ ] 想再加一层门：Cloudflare Access 属于 Zero Trust 产品线，**需要绑定付款方式**
+#       （免费额度 $0/月、50 用户，但绑卡即授予扣款权限）。不想绑卡就跳过，
+#       改用免费的 WAF 速率限制（Security → WAF → Rate limiting rules）。
+#       注意：**隧道本身与 Zero Trust 是两个独立产品**，跑隧道无需绑卡 ——
+#       别因为看到绑卡页面就以为走错了路。
+# ============================================================================
+
+
+services:
+
+  # ── Cloudflare Tunnel 连接器（可选组件，profiles 门控）────────────────────
+  # 服务名保持 `cloudflared`（而不是 dsh-cloudflared）：
+  #   - Cloudflare 官方文档、镜像名、社区排错帖全都用 cloudflared，改名会让
+  #     `docker compose logs cloudflared` 这类照抄来的命令失效；
+  #   - "避免与 dsh 冲突"针对的是**容器名**，那由下面的 container_name 满足。
+  cloudflared:
+    # ★ 默认不部署的关键：只有 `--profile cloudflare` 时才激活。
+    #   compose-spec 的 15-profiles.md 原文：未启用 profile 的服务会被 compose
+    #   **忽略**，除非该服务被命令**显式点名**。
+    #   → 不带 profile 跑主 compose 的 `up -d`（不点名任何服务）：本服务被忽略，
+    #     容器不会被创建。这就是我们要的"默认不部署"。
+    #   ⚠ 同一句的后半段也要记住：**显式点名会激活它**。所以
+    #     `docker compose up -d cloudflared`、`docker compose --profile cloudflare up -d cloudflared`
+    #     都会把它拉起来。"默认不部署"的准确含义是
+    #     「照常跑 `docker compose up -d` 不会起它」，而不是"任何写法都不会起它"。
+    profiles:
+      - cloudflare
+
+    image: cloudflare/cloudflared:latest
+    # 容器名带 dsh- 前缀：宿主上 `docker ps` 一眼看出它属于哪套部署，
+    # 也避免与别处叫 cloudflared 的容器抢名字。可用 .env 覆盖。
+    container_name: ${CF_CONTAINER_NAME:-dsh-cloudflared}
+    restart: unless-stopped
+
+    # --no-autoupdate：cloudflared 的自更新会在容器内替换自己的二进制，
+    #   而本项目用**镜像版本**管理更新（pull cloudflared → up -d cloudflared）。
+    #   两者并存会让"镜像 tag"与"实际运行的版本"错位，排查时产生误导。
+    command: tunnel --no-autoupdate run
+
+    environment:
+      # 隧道凭据（Token 模式）。格式形如 `eyJhIjoi...`（很长的 base64）。
+      # ⚠ 刻意用 `:-` 而不是 `:?` —— 完整理由见 §3。一句话：
+      #   `:?` 会把"没配 token"从"隧道起不来"升级成"compose 命令整个跑不动"。
+      # ⚠ value 是**空串**而不是省略该行：让 cloudflared 自己报"token 为空"，
+      #   比让 compose 报一个跟隧道无关的错更好定位。
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+      # 时区：与主 compose 保持一致，便于把容器日志与 Cloudflare 侧时间对齐比对
+      - TZ=${TZ:-Asia/Shanghai}
+
+    # 等 dsh 健康后再启动 cloudflared。
+    #   dsh 的 healthcheck 带 start_period: 300s（容首启复制 seed + 冷启动），
+    #   所以**首次** `up -d` 时 cloudflared 可能要等几分钟才启动 —— 这是预期行为。
+    #   为什么不等不行：隧道一注册成功，Cloudflare 就开始把公网流量回源过来；
+    #   若源站尚未就绪，公网访客看到的是 502，比"隧道晚几分钟可用"糟糕得多。
+    #   ⚠ 排障提示：`logs cloudflared` 一直没输出时，先看 `ps` 里 dsh 是不是 healthy。
+    depends_on:
+      dsh:
+        condition: service_healthy
+
+    # ⚠ 刻意**不映射任何端口**（本服务没有 ports 段）：
+    #   cloudflared 只主动**出站**连到 Cloudflare 边缘（443），Cloudflare 再从
+    #   那条已建立的隧道里回源 —— 全程不需要任何入站端口。
+    #   映射端口不会让隧道更好用，只会平白多一个可被扫描的攻击面。
+
+    # 资源限制：cloudflared 很轻（Go 静态二进制 + 少量 goroutine），256m 足够有余。
+    #   全部走 ${VAR:-default}，需要时在 .env 里覆盖即可（写法同主 compose）。
+    mem_limit: ${CF_MEM_LIMIT:-256m}
+    cpus: ${CF_CPU_LIMIT:-0.5}
+    pids_limit: ${CF_PIDS_LIMIT:-128}
+
+    # ── 容器硬化：本文件默认只开最低档 ────────────────────────────────────
+    # 【为什么只开 no-new-privileges】
+    #   cloudflared 是 Go 静态二进制，理论上完全支持只读根 FS 与零 capability，
+    #   但**官方 Docker 镜像是否真能兼容 read_only，未在真机验证过**
+    #   （它可能想写 ~/.cloudflared 或临时目录）。默认保留最低档，好处是
+    #   出问题能立刻二分定位：
+    #     加硬化前就失败 → 是 token / 网络 / Routes 的问题
+    #     加硬化后才失败 → 是硬化过度
+    #   no-new-privileges 是纯保险（禁 setuid/setgid 提权），零兼容风险，
+    #   故默认开启，与主 compose 的 dsh 服务取齐。
+    security_opt:
+      - no-new-privileges:true
+
+    # 【如何把硬化补齐到与 dsh 同级】（隧道跑通后再做：逐项解锁、逐项重启验证）
+    #   下面几行**只是注释，默认不生效**；取消注释时请连同缩进一起放开：
+    #
+    #   read_only: true
+    #   tmpfs:
+    #     # tmpfs 默认 noexec，但 cloudflared 不需要在 /tmp 执行任何东西，
+    #     # 故这里不必像主 compose 的 dsh 那样加 `,exec`。
+    #     - /tmp:size=32m
+    #
+    #   cap_drop:
+    #     - ALL
+    #     # cloudflared 不监听特权端口、不做 chown/setuid，理论上无需任何 capability。
+    #
+    #   验证手法：`up -d cloudflared` 后 `logs cloudflared`，
+    #     看到 "Registered tunnel connection" = OK；
+    #     若报 "read-only file system" / "permission denied" = 它确实需要写盘，
+    #     此时回退该项，改为只给它一个具体的可写卷，而不是整体放弃硬化。
+    #
+    #   注：主 compose 的 dsh 是 cap_drop:[ALL] + 最小白名单（CHOWN/DAC_OVERRIDE/
+    #   SETUID/SETGID，供首启 chown 与降权用）。cloudflared 不需要这些，
+    #   所以这里是 cap_drop ALL 且**不加任何 cap_add** —— 两者安全目标一致，
+    #   但具体清单本就应当不同，不必强行对称。
+
+    logging:
+      # json-file 与主 compose 一致。**必须设上限**：cloudflared 在 token 错误或
+      # 网络抖动时会**持续重连并刷日志**，无上限时可以把宿主磁盘写满
+      # （这是长跑容器的经典事故，不是理论风险）。
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+# ============================================================================
+# §6 关于网络：本文件**刻意不定义 networks**
+#
+#   只需把本文件与 docker-compose.yml 一起 -f 传入：compose 会把两者合并成
+#   **同一个 project**（项目名默认取第一个 -f 文件所在目录名），
+#   于是 cloudflared 自动加入该项目在 docker-compose.yml 里创建的网络，
+#   直接用服务名 `dsh` 即可访问 —— 这正是 §2 那个 `http://dsh:3080` 能成立的原因。
+#
+#   ⚠ 只有当**你的**主 compose 显式定义了自定义网络（而不是用默认 bridge）时，
+#     才需要在这里补一段把 cloudflared 接进去，形如：
+#       services:
+#         cloudflared:
+#           networks: [你的网络名]
+#     反之，若你在本文件里新定义 networks，很可能**新建出第二个网络**，
+#     导致 cloudflared 解析不到 `dsh` —— 症状是隧道注册成功但公网 502。
+# ============================================================================

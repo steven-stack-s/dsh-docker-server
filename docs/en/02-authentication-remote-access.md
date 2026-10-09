@@ -22,7 +22,8 @@ see §3.
 | Local access (`127.0.0.1:3080`) | Highest | Browser on the same machine |
 | LAN-direct + account login (**default**) | High (password, MFA optional) | LAN usage |
 | SSH tunnel | High (encrypted) | Temporary single-user access from outside |
-| Reverse proxy + HTTPS | High (auth layer + HTTPS) | Long-term remote access |
+| Reverse proxy + HTTPS | High (auth layer + HTTPS) | Long-term remote access, **with** a public IP |
+| Cloudflare Tunnel | High (auth layer + Cloudflare edge TLS) | Long-term remote access, **without** a public IP |
 
 > Browser limitation: some features of `dsh web` (e.g. `crypto.randomUUID`, settings) require a **secure context**
 > (HTTPS or localhost). If you hit related errors when accessing the intranet directly by IP, that is the browser's security
@@ -163,6 +164,15 @@ your-domain.com {
 }
 ```
 
+> ⚠ That `3080` is the **host-side** port and tracks `DSH_PORT` in `.env` (default 3080) — if you
+> changed `DSH_PORT`, change this too. The tunnel section below is the exact opposite: there
+> `cloudflared` talks straight to the `dsh` container, so the **in-container** port is always `3080`
+> and does **not** follow `DSH_PORT`. Do not mix the two up (see the port note under
+> "§8 Cloudflare Tunnel (No Public IP Required)" below).
+>
+> ℹ If Caddy shares the same compose network as dsh, `reverse_proxy dsh:3080` also works — that is a
+> container-to-container hop, so it is likewise always `3080`.
+
 ```bash
 # Run Caddy with Docker
 docker run -d --name caddy \
@@ -174,7 +184,210 @@ docker run -d --name caddy \
 
 > Before exposing through a reverse proxy, make sure the auth plugin is enabled (the default) and MFA is enabled (see Section 3).
 
-## 8. Security Checklist
+> ⚠ **The reverse-proxy route assumes "the domain resolves to this host, and ports 80/443 are open to
+> the internet."** On a home connection behind CGNAT (no public IP from the ISP), or wherever port
+> forwarding is not an option, this section cannot work — use the Cloudflare Tunnel below instead. It
+> needs **no public IP and no inbound port**.
+
+## 8. Cloudflare Tunnel (No Public IP Required)
+
+The reverse-proxy route above has a hard prerequisite: **the domain must resolve to this host, and
+the host's ports 80/443 must be open to the internet.** On a home connection behind CGNAT (the ISP
+gives you no public IP) that prerequisite simply does not hold — you have neither a public address to
+point DNS at nor any business opening a port on the router for it.
+
+Cloudflare Tunnel flips the direction. A `cloudflared` container opens an **outbound** connection
+(TCP 443) to Cloudflare's edge, and public requests come back down that **already-established tunnel**.
+No inbound port, no public IP.
+
+```bash
+# Direction of travel, in one line
+Reverse proxy: public ──inbound──> your host:443 ──> dsh:3080      ← needs public IP + open port
+Tunnel:        public ──> Cloudflare edge ──outbound tunnel──> dsh:3080   ← needs neither
+```
+
+> 💰 **The tunnel itself is free and needs no payment method.** It is a standalone Cloudflare
+> product and is **not part of the Zero Trust line** — if the console asks you to add a payment
+> method, that page is for **Access (Zero Trust)**, which the tunnel does not require. This
+> distinction matters; it is the usual reason people think they took a wrong turn (see the optional
+> section below).
+
+### How it compares to a reverse proxy
+
+| | Reverse proxy + HTTPS (Caddy) | Cloudflare Tunnel |
+|---|---|---|
+| Public IP required | **Yes** | **No** |
+| Inbound port required | **Yes** (80/443) | **No** (outbound 443 only) |
+| Who handles TLS | You (Caddy's automatic Let's Encrypt) | Cloudflare's edge (the origin leg is plain HTTP) |
+| Domain must be on Cloudflare | No | **Yes** (at least onboarded to Cloudflare) |
+| Extra account / cost | None | Cloudflare account, **free** |
+| Best fit | VPS, cloud hosts, servers with a public IP | **Home broadband, NAS, CGNAT, machines behind NAT** |
+
+### Setup (verified end-to-end on real hardware, 2026-10-09)
+
+**Step 1 — create the tunnel and grab the token**
+
+Cloudflare Dashboard → left menu **`Networking` → `Tunnels`** → `Create a tunnel` → choose
+`Cloudflared`.
+
+> ⚠ Two easy-to-miss details in the **current UI**:
+> - The menu is **`Networking`**, not `Networks`;
+> - Tunnels are **not** under the `Zero Trust` menu — it is a standalone product (which is exactly
+>   why it needs no payment method).
+
+At the `Install cloudflared connector` step, **switch `Select Operating System` to `Docker`
+manually**, then copy the string after `--token` (starts with `eyJ`). If you skip the switch, the
+page hands you an installer for your *browser's* OS — and you will not find a token there at all.
+
+```bash
+# .env
+TUNNEL_TOKEN=eyJhIjoi...   (paste what you just copied)
+```
+
+> 🔐 `TUNNEL_TOKEN` is a secret: make sure `.env` is git-ignored (it is, by default in this repo)
+> and `chmod 600 .env`. A leaked token lets someone point your traffic at their own origin.
+
+**Step 2 — configure the route (this is where most people get stuck)**
+
+Tunnel detail page → **`Routes`** tab → `Add a route`.
+
+| Field | Value | Why |
+|---|---|---|
+| Route type | **`Published application`** | After `Add a route` you **must pick a type first**. Choosing `Private hostname` creates a **WARP-client-only** path that public visitors can never reach — the symptom is "the tunnel is healthy but the domain won't open." |
+| Domain | your domain (e.g. `dsh.example.com`) | Saving this makes Cloudflare add a DNS record automatically. |
+| Service → Type | `HTTP` | The origin leg into the container is **plain HTTP** — there is no TLS there. |
+| Service → URL | **`http://dsh:3080`** | See the breakdown below — **all three parts matter**. |
+
+> ⚠ **The current form requires a protocol prefix**: entering just `dsh:3080` fails immediately with
+> `Invalid service URL format (must start with protocol...)`.
+
+Breaking down `http://dsh:3080`:
+
+```
+  http://  dsh  :3080
+  └──┬───┘  └┬┘  └─┬─┘
+     │       │     └─ The socat port. 3081 is rejected — it binds the container's loopback only,
+     │       │        so an inter-container connection can never reach it.
+     │       └─ The **compose service name**. `localhost` / `127.0.0.1` here is a guaranteed 502:
+     │          that is the cloudflared container's own loopback, and has nothing to do with dsh.
+     └─ The protocol prefix. This leg **is http**: TLS terminated at Cloudflare's edge, so the
+        tunnel carries plain HTTP. Choosing https here yields a 502.
+```
+
+> 💡 **One-line mnemonic: the internal leg is http; only the public leg is https.**
+
+> ⚠ **`:3080` here is the in-container port and has nothing to do with `DSH_PORT` in `.env` — do
+> not follow it.** `DSH_PORT` changes the **host-side** published port; socat inside the container
+> always listens on `3080` (`SOCAT_PORT` belongs to the entrypoint and is set by neither the compose
+> file nor `.env.example`). Tunnel origin traffic takes the `cloudflared → dsh` hop, whose port is
+> fixed at `3080`; substituting your `DSH_PORT` value (say 3081) is a guaranteed 502.
+> The converse also holds: if you change `DSH_PORT`, you just browse the host on the new port and
+> leave this alone.
+
+After saving, check **DNS → Records**: a **CNAME** pointing at `<Tunnel ID>.cfargotunnel.com` should
+appear automatically. **That record showing up means the route is correctly configured** — far more
+direct than reading any log.
+
+**Step 3 — start it**
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml \
+  --profile cloudflare up -d
+```
+
+> 📌 The file is `docker-compose.cloudflare.yml`, the profile is `cloudflare`, and the service is
+> `cloudflared` — similar-looking but **three different things**: `-f` takes the file, `--profile`
+> takes the profile.
+>
+> For day-to-day use, define an alias instead of retyping two `-f` flags:
+>
+> ```bash
+> DC='docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml --profile cloudflare'
+> $DC ps                       # status
+> $DC logs -f cloudflared      # logs
+> $DC stop cloudflared         # stop the tunnel only; dsh keeps running
+> ```
+>
+> **Do not want the tunnel?** Drop `--profile cloudflare` — compose then **ignores** cloudflared
+> entirely and never even creates the container. That is the deliberate "not deployed by default"
+> behaviour (a running container needs `$DC down` to clean up).
+
+**Step 4 — verify**
+
+```bash
+# a) Did the tunnel register? — expect 4 lines
+$DC logs cloudflared | grep 'Registered tunnel connection'
+
+# b) Can the containers actually reach each other? (probe dsh from inside cloudflared)
+docker exec dsh-cloudflared wget -qO- --spider --timeout=5 http://dsh:3080/
+
+# c) From the public side
+curl -I https://dsh.example.com/
+```
+
+> ⚠ **On the first `up -d`, cloudflared may take minutes before it starts** — that is expected, not
+> a fault: cloudflared has `depends_on: dsh (service_healthy)`, and dsh's healthcheck carries
+> `start_period: 300s` (first boot copies the seed and cold-starts).
+> So when `logs cloudflared` shows nothing, **first check whether dsh is `healthy` in `ps`**.
+>
+> Why not skip the wait: the moment the tunnel registers, Cloudflare starts routing public traffic to
+> your origin. If the origin is not ready yet, public visitors get a 502 — considerably worse than a
+> tunnel that becomes available a few minutes later.
+
+### Security baseline (check every line before exposing)
+
+| Item | Requirement | Why |
+|---|---|---|
+| `DSH_SETUP_REMOTE` | **Must stay `on`** (the repo default) | This is the **only** authentication line for a public deployment. Turning it off = hanging a machine with full agent privileges on the public internet, where anyone opening the page gets a logged-in session. |
+| MFA (TOTP) | Enable **immediately** after the first login | Settings → Login & Account → Two-factor authentication. Without Cloudflare Access this is the single most important defense. |
+| `DSH_TRUSTED_HOSTS` | **Do not set it** | With the auth plugin installed (the default), dsh-remote's `trustProxy` normalizes the Host to loopback after login, so the tunnel domain is admitted naturally (verified 2026-09-17, see the top of this section). Setting it is redundant. **Conversely**: if you turn `DSH_SETUP_REMOTE` off, you *must* set your tunnel domain or `/api` returns 403. |
+| `DSH_PUBLIC_URL` | **Recommended**: `https://<your-domain>/` (trailing slash) | Otherwise the log line and the **system prompt handed to the model** still name the in-container `127.0.0.1:3081`, producing "the link in the log won't open" and "the address the model gave me won't open". |
+| `.env` permissions | `chmod 600 .env` | It holds both `TUNNEL_TOKEN` and your API key. |
+
+> ℹ As with the reverse-proxy section: **the tunnel does not change dsh's trust model.** It only
+> carries traffic in; access control is still carried by the account login + MFA.
+
+### Optional: an extra layer with Cloudflare Access
+
+If you want one more gate (say, an email OTP before anyone even reaches the dsh login page), you can
+enable Cloudflare Access.
+
+> ⚠ **Access belongs to the Zero Trust line and requires a payment method** (the free tier is
+> $0/month for 50 users, but attaching a card grants charging authority). **Skip this section if you
+> would rather not attach one** — it is a nice-to-have; the tunnel does not need it. Do not read the
+> payment page as a sign that the earlier steps went wrong.
+
+**A free alternative without a card: WAF rate limiting** (Cloudflare Dashboard → `Security` → `WAF`
+→ `Rate limiting rules`). Rate-limiting the login endpoint raises the cost of brute-forcing
+substantially, at no charge. Suggested settings:
+
+| Field | Suggested value | Rationale |
+|---|---|---|
+| Match | path contains `/api` (or your concrete login path) | Throttle auth-related requests only, without penalizing static assets. |
+| Rate | e.g. `10 requests / 1 minute` per IP | Nobody logs in ten times a minute. |
+| Action | `Block` (or `Managed Challenge`) | `Managed Challenge` is gentler on false positives. |
+
+### Troubleshooting
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Public **502**, while the log says the tunnel is registered | **Wrong Service URL** — most often `http://localhost:3080` or `http://127.0.0.1:3080` (that is cloudflared's own loopback), or `https://` for the origin (there is no TLS inside), port `3081` (loopback-only), or **`3080` swapped for your own `DSH_PORT` value** (a host-side port that has nothing to do with in-container socat). | Use **`http://dsh:3080`** and check all three parts. |
+| Saving the route fails with `Invalid service URL format (must start with protocol...)` | The current form requires a protocol prefix; you entered bare `dsh:3080`. | Prepend `http://` → `http://dsh:3080`. |
+| **No `Public Hostname` tab anywhere** | The UI was renamed. The old label was `Public Hostname`; the current one is **`Routes`** — semantically identical. | Go to `Routes`, then `Add a route` → `Published application`. |
+| No `Tunnels` entry under the `Zero Trust` menu | Tunnels are not under Zero Trust — standalone product. | Use the left menu **`Networking` → `Tunnels`**. |
+| Tunnel is up but the domain will not open | The route type was left as `Private hostname` (WARP-client-only). | Switch it to `Published application`. |
+| No CNAME appears in DNS | The route was not saved, or the domain is not in this Cloudflare account. | Recheck `Routes`; confirm the domain is onboarded to Cloudflare. |
+| **Page loads but `/api` returns 403** (looks like a blank UI / broken connection) | Either `DSH_SETUP_REMOTE=off` (in which case you must set `DSH_TRUSTED_HOSTS=<your tunnel domain>` yourself), or port 3080 is not going through the auth plugin's path. | Confirm `DSH_SETUP_REMOTE=on` in `.env` (the default) and use `/api` after logging in. |
+| cloudflared exits immediately with `unauthorized` or an empty-token message | `TUNNEL_TOKEN` is missing or wrong. Compose defaults it to an empty string via `${TUNNEL_TOKEN:-}` — **deliberately not failing the compose command**, so that cloudflared itself reports the real reason. | `$DC logs cloudflared \| grep -i 'unauthorized\|token'`; re-copy the token from the console. **dsh is unaffected.** |
+| `logs cloudflared` stays silent for a long time | dsh is not healthy yet, so cloudflared has not started (it is gated by `depends_on`). | Check `$DC ps` for dsh `healthy`; a few minutes on first boot is normal (`start_period: 300s`). |
+
+> 📌 Once the tunnel works, if you want to tighten the cloudflared container further (read-only root
+> FS + zero capabilities), `docker-compose.cloudflare.yml` already carries a **commented-out**
+> hardening block plus a per-item verification recipe. Uncomment it one item at a time *after* the
+> tunnel is proven — that way a failure immediately bisects into "misconfiguration" vs
+> "over-hardening".
+
+## 9. Security Checklist
 
 - [ ] Remote access: strong password + **MFA (TOTP)**
 - [ ] Do not map `3080` directly to the public internet

@@ -72,7 +72,7 @@ docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 | 文档 | 内容 |
 |---|---|
 | [docs/zh-CN/01-快速开始.md](docs/zh-CN/01-快速开始.md) | 安装、配置、token 访问、验证 |
-| [docs/zh-CN/02-认证与远程访问.md](docs/zh-CN/02-认证与远程访问.md) | 可选 dsh-remote 认证、SSH 隧道、反向代理 |
+| [docs/zh-CN/02-认证与远程访问.md](docs/zh-CN/02-认证与远程访问.md) | 默认 dsh-remote 认证、SSH 隧道、反向代理、Cloudflare Tunnel |
 | [docs/zh-CN/03-升级与维护.md](docs/zh-CN/03-升级与维护.md) | 升级、插件、密钥、备份 |
 | [docs/zh-CN/04-故障排查.md](docs/zh-CN/04-故障排查.md) | 常见问题 |
 | [docs/zh-CN/05-平台差异.md](docs/zh-CN/05-平台差异.md) | Linux / NAS / Docker Desktop 差异 |
@@ -120,7 +120,8 @@ docker logs dsh 2>&1 | grep -A9 'first-boot admin credentials'
 ## ⚠️ 安全提示
 
 - `DEEPSEEK_API_KEY` 只写在 `.env`（已被 `.gitignore` 忽略），不要提交到仓库
-- 不要把 `3080` 直接映射到公网；远程访问请按 [docs/zh-CN/02-认证与远程访问.md](docs/zh-CN/02-认证与远程访问.md) 配置认证 + 反向代理
+- 不要把 `3080` 直接映射到公网；远程访问请按 [docs/zh-CN/02-认证与远程访问.md](docs/zh-CN/02-认证与远程访问.md) 配置认证 + 反向代理 / Cloudflare Tunnel
+  （后者适用于**无公网 IP** 的家宽 —— 纯出站隧道回源，不需要任何入站端口，见 `docker-compose.cloudflare.yml`）
 - 定期备份整个部署目录
 - **默认安全姿态**（v0.4.6 起）：容器以**非 root** 的 `node` 用户（uid 1000）运行（入口脚本首启 chown
   挂载卷后 `setpriv` 降权），并启用 `cap_drop:[ALL]`（保留 4 个最小能力）、根 FS 只读

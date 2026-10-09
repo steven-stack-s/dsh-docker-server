@@ -214,6 +214,63 @@ DSH_PUBLIC_URL=http://192.168.1.50:3080/
 
 ---
 
+## 3.7 Cloudflare Tunnel (cloudflared)
+
+When your home connection is behind CGNAT (no public IP) and port forwarding is not an option, the
+outbound tunnel shipped in `docker-compose.cloudflare.yml` gives dsh public reachability. It is
+**not deployed by default** — leaving these variables unset changes nothing.
+
+To enable (note **three similar-looking names that are three different things**: `-f` takes the
+file, `--profile` takes the profile, and the service is `cloudflared`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml --profile cloudflare up -d
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TUNNEL_TOKEN` | (empty) | Tunnel credential (token mode): a long `eyJ...` base64 string obtained when creating the tunnel in the Cloudflare Dashboard. **Empty = cloudflared exits with `unauthorized` after start; dsh is entirely unaffected.** This is the only tunnel variable registered in `.env.example` (at the end, and **still commented out** — uncomment and fill it in yourself). ⚠ It is a secret: keep `.env` git-ignored and `chmod 600 .env`. |
+| `CF_CONTAINER_NAME` | `dsh-cloudflared` | The cloudflared **container name** (the compose service name is always `cloudflared` and is not configurable). The `dsh-` prefix makes ownership obvious in host `docker ps` and avoids name collisions with unrelated `cloudflared` containers elsewhere. |
+| `CF_MEM_LIMIT` | `256m` | cloudflared container memory cap. cloudflared is very light (Go static binary + a few goroutines); 256m is comfortably enough. |
+| `CF_CPU_LIMIT` | `0.5` | cloudflared container CPU cap. The tunnel only forwards traffic; it needs no more. |
+| `CF_PIDS_LIMIT` | `128` | cloudflared container process-count cap. |
+
+**Where the defaults live**: the `CF_*` four and the `TUNNEL_TOKEN` fallback all live in
+`docker-compose.cloudflare.yml`'s `${VAR:-default}` expressions, **not in `docker-compose.yml`**
+(the tunnel is a separate additive layer and overrides no field of the main compose file). To change
+a default, use **Method A or B** from the top of this document: edit the `${VAR:-...}` in that compose
+file, or append the same variable in `.env`.
+
+> ⚠ **`TUNNEL_TOKEN` falls back to `${TUNNEL_TOKEN:-}` (empty string), not `${TUNNEL_TOKEN:?}`
+> (hard failure)** — deliberately. Per the compose-spec, variable interpolation happens while
+> **reading the file and building the project model**, i.e. **before profile filtering**. With `:?`,
+> merely passing `-f docker-compose.cloudflare.yml` on the command line would make `config` / `ps` /
+> `up -d` all fail on the missing token even when you never enable the tunnel. That escalates a
+> mistake that **should only affect the tunnel** into "the whole compose command is unusable", which
+> is unacceptable for someone who just cloned the repo to run dsh. With `:-`, the consequence stays
+> inside the tunnel layer: cloudflared reports `unauthorized` and exits (`restart: unless-stopped`
+> keeps retrying, and it never comes up), with an obvious diagnostic entry point:
+> `docker compose ... logs cloudflared | grep -i 'unauthorized\|token'`.
+>
+> 📌 The claim that interpolation precedes profile filtering **rests on the compose-spec text and has
+> since been confirmed on real hardware** (2026-10-09). One reason `:-` was chosen is still that it
+> does **not** depend on that implementation detail: whether or not compose interpolates services of
+> disabled profiles, `:-` errors in neither the "unset" nor the "empty" case. To keep a strict check
+> on the caller's side, add a preflight yourself:
+> `[ -n "$(grep -E '^TUNNEL_TOKEN=.+' .env)" ] || { echo 'TUNNEL_TOKEN not configured'; exit 1; }`
+
+> ⚠ **The `CF_*` four exist only as `${VAR:-default}` in `docker-compose.cloudflare.yml`**;
+> `docker-compose.yml` never references them. That differs slightly from this document's opening
+> statement that the vars live in `docker-compose.yml` fallbacks — it follows from the tunnel being
+> an additive layer.
+
+Other tunnel behaviour (`profiles` gating, `depends_on` waiting for dsh to be healthy, no mapped
+ports, resource and log caps, and the optional further-hardening checklist) is documented in the
+header comments of `docker-compose.cloudflare.yml` and in the "Cloudflare Tunnel" section of
+[02 · Authentication & Remote Access](02-authentication-remote-access.md).
+
+---
+
 ## 4. Toolchain
 
 | Variable | Default | Meaning |

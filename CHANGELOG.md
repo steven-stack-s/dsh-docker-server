@@ -6,6 +6,121 @@
 
 ## [Unreleased]
 
+### Added
+- **Cloudflare Tunnel 可选接入层 `docker-compose.cloudflare.yml`（补"家庭宽带无公网 IP"这个缺口）**。
+  既有远程方案只有两条路：SSH 隧道（临时、单人）与反向代理 + HTTPS（需要域名解析到主机、
+  且**入站 80/443 可达**）。两者都默认"你这台机器在公网上够得着"—— 而 CGNAT / 大内网里的
+  家庭宽带**根本没有可入站的公网 IP**，端口转发也无从谈起，于是这类用户此前只能退回局域网。
+  新覆盖文件补上第三条路：由 `cloudflared` **主动出站**连 Cloudflare 边缘并建立长连接，
+  公网流量从这条已建立的隧道回源 —— 全程不需要任何入站端口、不需要公网 IP、不需要动路由器。
+  - **这是"附加层"，不是"覆盖层"**：文件只**新增**一个 `cloudflared` 服务，不改写主 compose
+    的任何字段（`image`/`ports`/`command` 等一字未动），主 compose 的行为保持不变。
+    门禁专门断言了这一点：覆盖文件里若声明 `dsh`，只允许 `networks`/`depends_on`/`extra_hosts`
+    这类纯接线键。之所以**不禁止**覆盖文件写 `dsh`，是因为给既有服务追加网络本就是覆盖文件的
+    常规用法，初版写成"禁止出现 dsh"会对合法写法误报 —— 门禁误报会逼人删掉真需求，比漏报更糟。
+  - **网络靠"同一个 compose 项目"打通，刻意不定义 `networks`**：两个 `-f` 一起传入时
+    compose 合并成同一个 project（项目名取第一个 `-f` 文件所在目录），cloudflared 因此自动
+    加入主 compose 创建的网络，直接用服务名 `dsh` 即可访问。⚠ 反过来若在本文件里另起
+    `networks`，很可能**新建出第二个网络**，症状是隧道注册成功但公网 502。
+- **"默认不部署"由 compose `profiles: [cloudflare]` 门控**。不带 `--profile cloudflare` 时，
+  上游快速开始里那条 `docker compose up -d` **连容器都不会创建**（用默认路径的用户零影响），
+  要启用须显式 `--profile cloudflare`。
+  - **为什么用 profiles，而不是把 cloudflared 塞进主 compose**：主 compose **一个 profile 都没有**，
+    塞进去等于给**所有**用户强加一个默认启动的外部依赖（还得额外拉云厂商镜像），与"可选"直接冲突；
+    加上 cloudflared 与 dsh 的生命周期、升级节奏、失败域完全不同 —— 隧道挂了不该连累 dsh，
+    dsh 升级也不该顺带重建隧道容器。独立文件 + profile 之后，**未配 token 的用户零影响**。
+  - **精确边界（照抄官方文档的口径，不要记反）**：compose-spec 的 15-profiles.md 原文是
+    「服务在没有任何 profile 命中时被 compose **忽略**，**除非该服务被命令显式点名**」。
+    所以"默认不部署"的准确含义是「照常跑 `docker compose up -d` 不会起它」，
+    **不是**"任何写法都不会起它"：`up -d cloudflared` 或 `--profile cloudflare up -d cloudflared`
+    同样会把它拉起来。门禁把 (a) 不点名不带 profile → 不启动、(b) 显式点名 → 启动、
+    (c) `--profile cloudflare` → 启动、(d) 无关 profile → 仍不启动**四条全断了**：
+    只断 (a) 会漏掉"有人把 profiles 写成恒真"的退化，只断 (b) 会漏掉边界本身。
+  - ⚠ `restart: unless-stopped` 只保证"容器已存在时"开机自恢复，**不会**让一份没被启用的
+    compose 在重启后突然拉起 cloudflared —— 这一点容易被误读，故在文件头与文档里都写明了。
+- **`TUNNEL_TOKEN` 用 `:-` 兜底而非 `:?` 强校验（本次最容易改错的一行，取舍写在这里）**。
+  验证版用的是 `TUNNEL_TOKEN=${TUNNEL_TOKEN:?…}`，那在**测试包**里是合理的（单文件、专用场景、
+  就是要"没配 token 就当场报错"），但进了本仓库必须改。依据是 compose-spec 规范原文而非猜测：
+  - **插值早于 profile 过滤**（决定性的一条）：12-interpolation.md 写明变量替换适用于 compose
+    文件里任何值，且**在按文件合并之前**就已应用 —— 即插值属于"读文件、构建 project model"
+    这一步，而不是"决定起哪个容器"那一步。后果：哪怕压根没打算开隧道，只要命令行挂了
+    `-f docker-compose.cloudflare.yml`，`config` / `ps` / `up -d` 都会因缺 token 而失败，
+    把"忘了配 token"这个**只该影响隧道**的失误升级成"整个 compose 命令都跑不动"。
+  - **空值同样触发，且更隐蔽**：同一节写明 `:?` 的判据是"未设置**或为空**"，
+    于是从模板复制却没填干净的 `TUNNEL_TOKEN=` 也会报错，而用户会以为 dsh 坏了。
+    实际部署里这比"完全没写"更常见。
+  - **`:-` 在两种实现下都安全**：`${VAR:-}` 在未设置时求值为空串，两边都不报错 ——
+    **不依赖"未启用 profile 的服务是否被插值"这一实现细节**，属纯保守选择。
+  - **代价可控且有兜底**：value 写成**空串**而不是省略该行，让 cloudflared 自己去报
+    "token 为空 / unauthorized"，比让 compose 报一个跟隧道无关的错更好定位；
+    且隧道起不来时 `restart: unless-stopped` 会持续重试但**dsh 完全不受影响**（失败域隔离）。
+    想要旧强校验体验的用户，正确做法是在**调用侧**加前置检查，而不是把 `:?` 改回去
+    （那会波及所有用户）—— 文件头 §3 给出了那行 `grep -E '^TUNNEL_TOKEN=.+'` 示例。
+- **门禁测试 `scripts/t/test-cloudflare-tunnel.sh`（已纳入 CI）**。它守的是"沉默的边界回退"：
+  `profiles:` 看起来只是几行 YAML，**删掉/改名之后 `docker compose up -d` 仍然成功、容器照跑、
+  功能全对，只有对外暴露面没了** —— 正是 `test-compose-wiring.sh` 顶部记的那类教训（门禁恒绿而边界已失）。
+  断言覆盖：`profiles` 键存在且值**精确等于** `cloudflare`（写成 `cf` 会让文档里的
+  `--profile cloudflare` 静默启不动，故要求精确而非包含）、profiles 块内**无额外 profile 名**、
+  `cloudflared` 段**无 `ports` 映射**、镜像为官方 `cloudflare/cloudflared`、command 含
+  `--no-autoupdate`（容器内自更新会让"镜像 tag"与实际运行版本错位）、`TUNNEL_TOKEN`/`TZ` 已注入、
+  段内 **零 `:?` 引用**、以及主 compose **不得**出现 `cloudflared`。CI 无需额外登记：
+  `docker-image.yml` 的 unit-tests job 以 `for f in scripts/t/test-*.sh` 通配执行。
+  - **反恒真与反误报同等重要**：脚本里写了三处"反向护栏"，确保断言不是"在空气上做检查"
+    （文件读不到、服务段被切空、主 compose 读不到时都必须报红而非通过）；
+    "默认不部署"那条改成对 profiles 语义做**离线求值**的 node 断言 —— 因为 CI 的 unit-tests job
+    跑在 bare shell 上（**没有 docker daemon**），任何依赖 `docker compose` 的断言都会退化成
+    "命令不存在 → 跳过 → 恒绿"，比没有门禁更危险。
+  - **YAML 解析降级是显式的**：本仓库无 YAML 依赖（实测 `require('js-yaml')` 报
+    Cannot find module）、宿主无 python3，故默认走"按缩进切出服务段后逐行精确匹配"的文本断言；
+    解析器可得时才附加真结构校验，不可得时**打印 `[DROP]` 提示**明确宣告"哪些校验没做"。
+    静默跳过校验再打印 ALL-PASS 属于"假装验证通过"，是本项目明确禁止的行为。
+- **文档同步**：`docs/02` 中英新增 Cloudflare Tunnel 章节（访问方式总览里补一行，
+  让"无公网 IP"不再是三条既有路径都覆盖不到的空白）；`TUNNEL_TOKEN` 与 `CF_CONTAINER_NAME` /
+  `CF_MEM_LIMIT` / `CF_CPU_LIMIT` / `CF_PIDS_LIMIT` 登记进 `.env.example` 与 `docs/07` 中英。
+  - **与既有方案的关系**：它**不改也不取代**反向代理方案 —— 有公网 IP 的用户继续用 Caddy
+    （TLS 与证书在自己手里，不经第三方）；隧道方案是给"确实入不了站"的人的第二条路，
+    代价是把边缘交给 Cloudflare、且**隧道内是明文 HTTP**（TLS 在 Cloudflare 边缘终结）。
+  - **安全前提写进了文档而非只写代码**：公网暴露前须确认 `DSH_SETUP_REMOTE=on`
+    （这是公网暴露**唯一**的认证防线）并在首次登录后**立刻开启 MFA**；`.env` 保持 600 且
+    `TUNNEL_TOKEN` 绝不进 git（token 泄露 = 别人能把流量引到自己的源站）；
+    建议填 `DSH_PUBLIC_URL=https://<域名>/` 否则日志与给模型的系统提示仍指向容器内地址；
+    **不要**填 `DSH_TRUSTED_HOSTS`（已装 dsh-remote 时其 trustProxy 会把 Host 归一为 loopback，
+    隧道域名天然放行）。另注明 Cloudflare Access 属 Zero Trust、需绑卡，不想绑卡可用免费 WAF
+    速率限制，且**隧道本身与 Zero Trust 是两个独立产品**，跑隧道无需绑卡。
+
+### Notes
+- **验证状态与尚未覆盖的边界**：
+  - **隧道链路本身已于 2026-10-09 在真机全流程验证通过**（Cloudflare 自建域名 + Docker）：
+    建隧道 → 填 `http://dsh:3080` 路由 → `Registered tunnel connection` → 公网可访问。
+    §2 记的 Service URL 三个坑（必须带协议前缀、服务名必须是 `dsh` 而不是 localhost、
+    端口必须是 socat 的 3080 而不是只绑回环的 3081）以及"新版 Dashboard 里选
+    `Published application` 而非 `Private hostname`""拿 token 要把 OS 手动切成 Docker"
+    都是那轮实测踩出来的。
+  - **本文件相对验证版做的两处改造 —— `profiles` 门控与 `:?` → `:-` —— 同样已在真机验证通过**：
+    `docker compose config` 真跑过，`profiles` 门控的四种行为边界（不带 profile 不启动 /
+    `--profile cloudflare` 启动 / 显式点名启动 / 无关 profile 不启动）与 `:-` 在 token 缺失、
+    token 为空两种情形下均不报错，都已实测确认。故"结论不依赖『未启用 profile 时是否跳过插值』"
+    这一判断已由实测背书，而不只是规范推理；依据 compose-spec 原文的那段论证（文件头 §3）
+    予以保留，作为"为什么这样选"的记录而非唯一依据。
+  - **`docker compose config` 已在真机实跑**（不再是"本机无 docker"的推理）：上述两处改造均经过
+    真实的 compose 解析与启动验证。CI 侧的 `test-cloudflare-tunnel.sh` 仍是纯文本/离线求值断言，
+    它守的是**回归**——防止后人删掉 `profiles` 这类"功能全对、只有边界没了"的沉默回退——
+    与真机验证是互补关系，不是替代关系。
+  - ⚠ **容器硬化只开了最低档**：默认仅 `no-new-privileges:true`（零兼容风险的纯保险），
+    `read_only` / `cap_drop: ALL` 以**注释形式**给出、默认不生效 —— 官方镜像是否兼容 read-only
+    根文件系统**未在真机验证过**。保留最低档的好处是出问题能立刻二分定位
+    （加硬化前就失败 = token/网络/Routes 问题；加硬化后才失败 = 硬化过度）。
+  - ⚠ **未验证的还有**：本项目未在除上述单机之外的环境（不同 NAS、不同 compose 版本、
+    podman-compose 等）验证过；`depends_on: service_healthy` 意味着**首次** `up -d` 时
+    cloudflared 可能要等几分钟（dsh 的 healthcheck 带 `start_period: 300s`），这是预期行为而非故障。
+  - **改动范围限定在隧道这一层**：`docker-compose.yml` 一字未动；`scripts/` 下无任何改动
+    （隧道不需要碰 entrypoint）。本 Unreleased 段同时收录的另外两部分与本条**不是同一批工作**：
+    (a) 上一个提交 `f8aedc7` 的 `DSH_PUBLIC_URL` 对外地址公告（涉及 `entrypoint.sh`、
+    `librescue.sh`、`rescue-supervise.sh` 与 5 个门禁脚本），当时未发版，故仍停留在本段；
+    (b) 由本批带来的文档改动 —— 两个 README 的远程访问描述、`docs/02` 中英的隧道章节、
+    `docs/07` 中英的变量登记。上述 (a) 的正文见该提交信息与 `[v0.6.2]` 段落。
+
+
 ## [v0.6.2-dsh-0.2.1-alpha.1] - 2026-10-08
 
 ### Changed

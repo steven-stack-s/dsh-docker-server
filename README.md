@@ -73,7 +73,7 @@ Detailed steps: [docs/en/01-quick-start.md](docs/en/01-quick-start.md)
 | Doc | Content |
 |---|---|
 | [docs/en/01-quick-start.md](docs/en/01-quick-start.md) | Install, configure, token access, verify |
-| [docs/en/02-authentication-remote-access.md](docs/en/02-authentication-remote-access.md) | Optional auth, SSH tunnel, reverse proxy |
+| [docs/en/02-authentication-remote-access.md](docs/en/02-authentication-remote-access.md) | Default auth, SSH tunnel, reverse proxy, Cloudflare Tunnel |
 | [docs/en/03-upgrade-maintenance.md](docs/en/03-upgrade-maintenance.md) | Upgrade, plugins, keys, backup |
 | [docs/en/04-troubleshooting.md](docs/en/04-troubleshooting.md) | Troubleshooting |
 | [docs/en/05-platform-differences.md](docs/en/05-platform-differences.md) | Linux / NAS / Docker Desktop differences |
@@ -122,7 +122,8 @@ Host :3080 ──> container socat(0.0.0.0:3080) ──> dsh web(127.0.0.1:3081)
 ## ⚠️ Security Notes
 
 - `DEEPSEEK_API_KEY` lives only in `.env` (ignored by `.gitignore`) — never commit it.
-- Do not expose port `3080` directly to the public internet; for remote access, add authentication + a reverse proxy (see [docs/en/02-authentication-remote-access.md](docs/en/02-authentication-remote-access.md)).
+- Do not expose port `3080` directly to the public internet; for remote access, add authentication + a reverse proxy / Cloudflare Tunnel
+  (the latter suits **home connections with no public IP** — an outbound-only tunnel with no inbound port at all; see `docker-compose.cloudflare.yml`).
 - Back up the whole deployment directory regularly.
 - **Default security posture** (since v0.4.6): the container runs as a **non-root** `node` user
   (uid 1000, the entrypoint chowns the volumes on first boot, then `setpriv` drops privileges),
