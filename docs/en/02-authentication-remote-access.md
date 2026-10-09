@@ -381,11 +381,10 @@ substantially, at no charge. Suggested settings:
 | cloudflared exits immediately with `unauthorized` or an empty-token message | `TUNNEL_TOKEN` is missing or wrong. Compose defaults it to an empty string via `${TUNNEL_TOKEN:-}` — **deliberately not failing the compose command**, so that cloudflared itself reports the real reason. | `$DC logs cloudflared \| grep -i 'unauthorized\|token'`; re-copy the token from the console. **dsh is unaffected.** |
 | `logs cloudflared` stays silent for a long time | dsh is not healthy yet, so cloudflared has not started (it is gated by `depends_on`). | Check `$DC ps` for dsh `healthy`; a few minutes on first boot is normal (`start_period: 300s`). |
 
-> 📌 Once the tunnel works, if you want to tighten the cloudflared container further (read-only root
-> FS + zero capabilities), `docker-compose.cloudflare.yml` already carries a **commented-out**
-> hardening block plus a per-item verification recipe. Uncomment it one item at a time *after* the
-> tunnel is proven — that way a failure immediately bisects into "misconfiguration" vs
-> "over-hardening".
+> 📌 In `docker-compose.cloudflare.yml` the cloudflared container already runs with hardening **equal
+> to the dsh service**: read-only root FS + zero capabilities + tmpfs `/tmp` + `no-new-privileges`
+> (verified on real hardware, 2026-10-09). If a future cloudflared image upgrade fails to start, use
+> the bisection recipe in that file's comments to tell "misconfiguration" from "over-hardening".
 
 ## 9. Security Checklist
 

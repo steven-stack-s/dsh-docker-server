@@ -265,8 +265,8 @@ file, or append the same variable in `.env`.
 > an additive layer.
 
 Other tunnel behaviour (`profiles` gating, `depends_on` waiting for dsh to be healthy, no mapped
-ports, resource and log caps, and the optional further-hardening checklist) is documented in the
-header comments of `docker-compose.cloudflare.yml` and in the "Cloudflare Tunnel" section of
+ports, resource and log caps, and container hardening on par with the dsh service) is documented in
+the header comments of `docker-compose.cloudflare.yml` and in the "Cloudflare Tunnel" section of
 [02 · Authentication & Remote Access](02-authentication-remote-access.md).
 
 ---

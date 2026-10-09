@@ -106,10 +106,15 @@
     真实的 compose 解析与启动验证。CI 侧的 `test-cloudflare-tunnel.sh` 仍是纯文本/离线求值断言，
     它守的是**回归**——防止后人删掉 `profiles` 这类"功能全对、只有边界没了"的沉默回退——
     与真机验证是互补关系，不是替代关系。
-  - ⚠ **容器硬化只开了最低档**：默认仅 `no-new-privileges:true`（零兼容风险的纯保险），
-    `read_only` / `cap_drop: ALL` 以**注释形式**给出、默认不生效 —— 官方镜像是否兼容 read-only
-    根文件系统**未在真机验证过**。保留最低档的好处是出问题能立刻二分定位
-    （加硬化前就失败 = token/网络/Routes 问题；加硬化后才失败 = 硬化过度）。
+  - **容器硬化已开到与 dsh 服务同级，并已真机实测**：`no-new-privileges:true`（纯保险）之外，
+    `read_only: true` / `tmpfs: /tmp:size=32m` / `cap_drop: [ALL]` 三项原本以注释形式保留
+    （当时担心官方镜像会写 `~/.cloudflared` 或临时目录），现已逐项验证通过并**默认生效**：
+    容器 inspect 实测 `ReadonlyRootfs=true`、`CapDrop=[ALL]`、`Tmpfs=map[/tmp:size=32m]`，
+    同时日志有 4 条 `Registered tunnel connection`、`CONNECTIVITY PRE-CHECKS` 全 PASS，
+    全程无 `read-only file system` / `permission denied` —— "配置生效"与"功能未退化"两头都验到了。
+    结论：token 模式下 cloudflared **不写根 FS**（凭据只从 `TUNNEL_TOKEN` 读，不走需落盘的
+    cert.pem 流程），且**不需要任何 capability**。⚠ 日后升级镜像若启动失败，按注释里的回退手法
+    二分定位（报写盘错误 = 给它一个具体可写卷，而不是整体放弃硬化）。
   - ⚠ **未验证的还有**：本项目未在除上述单机之外的环境（不同 NAS、不同 compose 版本、
     podman-compose 等）验证过；`depends_on: service_healthy` 意味着**首次** `up -d` 时
     cloudflared 可能要等几分钟（dsh 的 healthcheck 带 `start_period: 300s`），这是预期行为而非故障。

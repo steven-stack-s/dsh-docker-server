@@ -248,41 +248,32 @@ services:
     cpus: ${CF_CPU_LIMIT:-0.5}
     pids_limit: ${CF_PIDS_LIMIT:-128}
 
-    # ── 容器硬化：本文件默认只开最低档 ────────────────────────────────────
-    # 【为什么只开 no-new-privileges】
-    #   cloudflared 是 Go 静态二进制，理论上完全支持只读根 FS 与零 capability，
-    #   但**官方 Docker 镜像是否真能兼容 read_only，未在真机验证过**
-    #   （它可能想写 ~/.cloudflared 或临时目录）。默认保留最低档，好处是
-    #   出问题能立刻二分定位：
-    #     加硬化前就失败 → 是 token / 网络 / Routes 的问题
-    #     加硬化后才失败 → 是硬化过度
-    #   no-new-privileges 是纯保险（禁 setuid/setgid 提权），零兼容风险，
-    #   故默认开启，与主 compose 的 dsh 服务取齐。
+    # ── 容器硬化：与 dsh 服务同级 ─────────────────────────────────────────
+    # 【为什么这三项可以默认开 —— 已于 2026-10-09 真机实测，不是推断】
+    #   曾担心官方镜像会想写 ~/.cloudflared 或临时目录，故本文件初版只开
+    #   no-new-privileges、把其余三项留作注释。现已在真机逐项验证通过：
+    #     · 容器 inspect 硬证据：ReadonlyRootfs=true、CapDrop=[ALL]、Tmpfs=[/tmp:size=32m]
+    #     · 同时日志有 4 条 "Registered tunnel connection"（connIndex=0..3），
+    #       CONNECTIVITY PRE-CHECKS 全 PASS，未见任何 "read-only file system" /
+    #       "permission denied" —— 即"配置确实生效"且"功能未退化"两头都验到了。
+    #   结论：cloudflared 在 token 模式下**不写根 FS**（凭据只从 TUNNEL_TOKEN 读，
+    #   不走需要落盘的 cert.pem 流程），/tmp 给 tmpfs 即可，且**不需要任何 capability**
+    #   （不监听特权端口、不做 chown/setuid）。
+    #   ⚠ 若日后升级 cloudflared 镜像后启动失败，先按下面的"回退手法"二分定位：
+    #     报 "read-only file system" / "permission denied" = 它开始需要写盘了，
+    #     此时**给它一个具体的可写卷**（如 ~/.cloudflared），而不是整体放弃硬化。
+    read_only: true
+    tmpfs:
+      # tmpfs 默认 noexec，但 cloudflared 不需要在 /tmp 执行任何东西，
+      # 故这里不必像主 compose 的 dsh 那样加 `,exec`。
+      - /tmp:size=32m
+    cap_drop:
+      - ALL
+      # 刻意**不加任何 cap_add**：主 compose 的 dsh 需要 CHOWN/DAC_OVERRIDE/
+      # SETUID/SETGID 是供首启 chown 与降权用的，cloudflared 不涉及这些。
+      # 两者安全目标一致，但具体清单本就应当不同，不必强行对称。
     security_opt:
       - no-new-privileges:true
-
-    # 【如何把硬化补齐到与 dsh 同级】（隧道跑通后再做：逐项解锁、逐项重启验证）
-    #   下面几行**只是注释，默认不生效**；取消注释时请连同缩进一起放开：
-    #
-    #   read_only: true
-    #   tmpfs:
-    #     # tmpfs 默认 noexec，但 cloudflared 不需要在 /tmp 执行任何东西，
-    #     # 故这里不必像主 compose 的 dsh 那样加 `,exec`。
-    #     - /tmp:size=32m
-    #
-    #   cap_drop:
-    #     - ALL
-    #     # cloudflared 不监听特权端口、不做 chown/setuid，理论上无需任何 capability。
-    #
-    #   验证手法：`up -d cloudflared` 后 `logs cloudflared`，
-    #     看到 "Registered tunnel connection" = OK；
-    #     若报 "read-only file system" / "permission denied" = 它确实需要写盘，
-    #     此时回退该项，改为只给它一个具体的可写卷，而不是整体放弃硬化。
-    #
-    #   注：主 compose 的 dsh 是 cap_drop:[ALL] + 最小白名单（CHOWN/DAC_OVERRIDE/
-    #   SETUID/SETGID，供首启 chown 与降权用）。cloudflared 不需要这些，
-    #   所以这里是 cap_drop ALL 且**不加任何 cap_add** —— 两者安全目标一致，
-    #   但具体清单本就应当不同，不必强行对称。
 
     logging:
       # json-file 与主 compose 一致。**必须设上限**：cloudflared 在 token 错误或

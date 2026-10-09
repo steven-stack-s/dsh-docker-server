@@ -159,6 +159,49 @@ bad_ref=$(printf '%s\n' "$SEG_CODE" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*:\?[^}
 }
 
 # ---------------------------------------------------------------------------
+# 6b) 容器硬化四项必须**实际生效**（在非注释行里，不是躺在注释里）。
+#
+#    【为什么这条门禁必须存在】这四项最初是以**注释形式**给出的（当时担心官方镜像
+#    不兼容只读根 FS）。2026-10-09 真机验证通过后解锁为默认生效 —— 而"解锁"这个动作
+#    恰恰是最容易出错的：把 `#   read_only: true` 的 `#` 删掉时若少删一行、或缩进没跟着
+#    放开，YAML 里该项就**不存在**或**挂错层级**，而 compose 不会报错、容器照跑 ——
+#    表现为"硬化看着还在（注释里明明写着）"，实际一点没生效。这与本脚本顶部记的
+#    "门禁恒绿而边界已失"是同一类事故，故这里断言的是 SEG_CODE（非注释行视图）。
+#
+#    ⚠ 用 SEG_CODE 而非 SEG 是关键：`read_only`/`tmpfs`/`cap_drop` 这几个词在本文件的
+#    注释里（说明文字、回退手法）反复出现，若对 SEG 断言，那么**把真正的配置行删掉之后**
+#    注释里的字样仍会让断言通过 —— 已在 §"非注释行视图"处记过这个假绿。
+# ---------------------------------------------------------------------------
+printf '%s\n' "$SEG_CODE" | grep -qE '^    read_only:[[:space:]]*true[[:space:]]*$' \
+  || fail cloudflared-missing-read-only
+printf '%s\n' "$SEG_CODE" | grep -qE '^    cap_drop:[[:space:]]*$' \
+  || fail cloudflared-missing-cap-drop
+printf '%s\n' "$SEG_CODE" | grep -qE '^      -[[:space:]]+ALL[[:space:]]*$' \
+  || fail cloudflared-cap-drop-not-all
+printf '%s\n' "$SEG_CODE" | grep -qE '^    tmpfs:[[:space:]]*$' \
+  || fail cloudflared-missing-tmpfs
+printf '%s\n' "$SEG_CODE" | grep -qE '^      -[[:space:]]*/tmp:size=[0-9]+m[[:space:]]*$' \
+  || fail cloudflared-tmpfs-not-tmp
+printf '%s\n' "$SEG_CODE" | grep -qE '^      -[[:space:]]*no-new-privileges:true[[:space:]]*$' \
+  || fail cloudflared-missing-no-new-privileges
+
+# 反向护栏：`cap_drop` 下必须**只有** ALL，不得偷偷加回具体 capability。
+#   cloudflared 不监听特权端口、不做 chown/setuid，加回任何一项都意味着有人遇到了
+#   权限问题却没记录原因 —— 那正是"硬化悄悄退化"的典型形态，必须红灯逼其写明。
+cap_extra=$(printf '%s\n' "$SEG_CODE" | awk '
+  /^    cap_drop:[[:space:]]*$/ { inp=1; next }
+  inp && /^    [A-Za-z_]/ { inp=0 }
+  inp && /^      -[[:space:]]+/ {
+    v=$0; sub(/^[[:space:]]*-[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+    if (v != "ALL") print v
+  }
+')
+[ -z "$cap_extra" ] || {
+  echo "FAIL cloudflared-cap-drop-has-extra-caps: $cap_extra"
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
 # 7) 主 compose 不得被本改动污染：cloudflared 必须**只**活在独立覆盖文件里。
 #    若有人图省事把 cloudflared 塞进 docker-compose.yml，则所有 `docker compose up -d`
 #    的用户都会莫名多起一个隧道容器 —— "默认不部署"当场失效。
