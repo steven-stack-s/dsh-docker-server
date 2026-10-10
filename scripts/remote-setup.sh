@@ -8,7 +8,10 @@
 #
 # 【为什么放在 root 首启块】本脚本要写 /data/dsh/profiles/web 下的插件树与 manifest，
 #   而这些路径的属主在 ③ 步才对齐给运行用户。放在 chown 之后、降权之前执行，写入的文件
-#   天然属于 root，随后由 ③ 的属主对齐收尾（entrypoint 里本步骤排在 chown 之后）。
+#   天然属于 root，由 entrypoint 紧随其后的 **⑤c** 就地收尾属主。
+#   ⚠ 早期注释写的是"随后由 ③ 的属主对齐收尾"，那是错的 —— ③ 排在**本步骤之前**，
+#   下一个 ③ 只会出现在**下一次启动**；而首次启动会先因 EACCES 自愈耗尽落入 lifeboat，
+#   根本走不到下一次启动的正常路径（真机故障 2026-10-10）。故 entrypoint 新增 ⑤c 兜底。
 #
 # 【为什么用 `cordis.patch.yml` 的 bootstrap 而不是直接写 store.json】
 #   两种方式都能预置首个管理员，选 bootstrap 的理由：

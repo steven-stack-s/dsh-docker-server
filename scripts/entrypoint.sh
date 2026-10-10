@@ -244,8 +244,11 @@ PPF
   # ⑤b 默认认证插件（@xgone/dsh-remote）整备：装插件 + 登记 bundle + 预置首个管理员。
   #     【为什么排在这里】它要写 profile 目录（插件树 + manifest + cordis.patch.yml），
   #     而 ⑤ 刚把 /data/dsh/profiles 的属主对齐给运行用户；本步骤仍以 root 运行（降权在 ⑥），
-  #     写出的文件随后由下一轮的 ③ 属主对齐收尾。顺序错了会出现"root 属主的插件树让
-  #     uid 1000 读不到"→ profile 加载失败 → 自愈耗尽 → 进 lifeboat。
+  #     写出的文件由**紧随其后的 ⑤c** 就地收尾属主。⚠ 原先这里写的是"由下一轮的 ③
+  #     属主对齐收尾"—— 那个假设是错的：首次启动会在"下一轮"到来前就自愈耗尽并落入
+  #     lifeboat，③ 永远追不上 ⑤b 的写入（真机故障 2026-10-10，详见 ⑤c 的说明）。
+  #     顺序错了会出现"root 属主的插件树让 uid 1000 读不到"→ profile 加载失败 →
+  #     自愈耗尽 → 进 lifeboat。
   #     【为什么必须在 dsh 启动前】cordis.patch.yml 在启动时一次性读取（app-boot 的
   #     loadProfileDirectory），运行期改它不会生效（除非 HMR 开着且是长驻 surface）。
   #     【失败不阻断启动】插件装不上只是没有认证层（退回内网直连），而 PID1 起不来是彻底
@@ -263,6 +266,31 @@ PPF
     else
       elog '[entrypoint] WARN remote-setup.sh missing; default auth plugin NOT installed (deployment runs without authentication)'
     fi
+  fi
+
+  # ⑤c 属主收尾（真机故障修复 2026-10-10）。
+  #     【问题】⑤b 以 root 写出插件树与 `cordis.patch.yml`（该文件刻意 chmod 600），
+  #     而 ⑥ 之后 dsh 以 uid 1000 运行 —— **读不了 root 属主的文件**：
+  #         Error: dsh: failed to read overlay /data/dsh/profiles/web/cordis.patch.yml:
+  #                EACCES: permission denied
+  #     → profile 加载失败 → 自愈 4 次耗尽 → 置 lifeboat 标记 → 容器按 restart policy
+  #     重启后**停在 lifeboat**（healthy 但不是 web profile），用户必须手动
+  #     `docker restart dsh` 一次才回到正常 —— 首启体验与 01-快速开始 承诺的"秒级就绪"不符。
+  #     【为什么原设计没能兜住】⑤b 上方注释写着"写出的文件随后由**下一轮**的 ③ 属主对齐
+  #     收尾"。但首次启动在"下一轮"到来之前就已自愈耗尽并落盘 lifeboat 标记，第二次启动
+  #     被该标记接管去启动救生舱 —— 于是 ③ 永远追不上 ⑤b 的写入，形成稳定复现的坏路径。
+  #     调用链上是纯粹的"写者晚于对齐者"时序缺陷，与 dsh 版本无关（两版 dsh-app-boot 的
+  #     loadOverlayPatches 行为一致，详见 docs/analysis/2026-10-10-dsh-0.2.1-alpha.2-适配分析.md §六之二）。
+  #     【修法】在降权前就地补齐：对 ⑤b 的唯一写入面 /data/dsh/profiles 重跑 ③ 与 ③b 的同款
+  #     归一（只处理"属主/属组不符"与"属主无读权限"的条目，不 `-R` 无差别写）。
+  #     范围刻意收窄到 profiles：remote-setup.sh 的红线是"只写 profile 目录"，故无需扫三卷。
+  #     幂等（重跑无副作用）；失败不致命（只告警，绝不阻断启动 —— 救命的 lifeboat 必须可达）。
+  if [ -n "$RESCUE_PROFILE" ] && [ -d /data/dsh/profiles ]; then
+    find /data/dsh/profiles \( -not -user "$RUN_USER_ID" -o -not -group "$RUN_GROUP_ID" \) \
+      -exec chown "$RUN_USER_ID:$RUN_GROUP_ID" {} + 2>/dev/null \
+      || elog "[entrypoint]   WARN post-setup ownership alignment incomplete for /data/dsh/profiles"
+    find /data/dsh/profiles -not -perm -u+r -exec chmod u+rwX {} + 2>/dev/null \
+      || elog "[entrypoint]   WARN post-setup permission normalization incomplete for /data/dsh/profiles"
   fi
 
   # ⑥ 降权并重新 exec 本脚本。DSH_INIT_DONE 防止二次进入时再走本块。
