@@ -6,6 +6,55 @@
 
 ## [Unreleased]
 
+## [v0.6.3-dsh-0.2.1-alpha.2] - 2026-10-10
+
+### Changed
+- **DSH 升级到 `0.2.1-alpha.2`**（`Dockerfile` 的 `ARG DSH_VERSION`）。这是 `0.2.1-alpha.1` →
+  `0.2.1-alpha.2` 的**同线小版本前进**，锁 alpha 线的动机（拿到 `--public-url`）不变。
+  完整逐契约分析见 `docs/analysis/2026-10-10-dsh-0.2.1-alpha.2-适配分析.md`，
+  要点：
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`v0..v4` 五个，无新增）→ **本次升级不需要备份会话**。这与 0.1.6→0.1.7 那次的
+    「V3→V4 单向迁移、必须备份」性质**根本不同**，勿套用旧结论。
+  - **`--public-url` 续存**：选项仍在，且是同一份 `parsePublicUrl` 模块（chunk 名
+    `public-url-D_dMK-yI.js` 两版一致）；真实 `dsh web --public-url https://…` 启动实测
+    打印 `dsh web: https://…/?token=…`，公告行为正常。
+  - **`hmr` 条目逐字节相同**；`RETIRED_BUNDLES` 仍**只含** `schedule-bundle`，本项目
+    web/lifeboat profile 只列 `dsh-base` + `dsh-web-app`，零引用。
+  - **上游移除 6 个包**（`dsh-webhook`、`dsh-webhook-github`、`dsh-hooks-claude-code`、
+    `dsh-hooks-codex`、`dsh-hook-protocol`、`dsh-subagent-in-process-driver`）——
+    逐一 grep 确认本项目**引用数均为 0**。
+  - ⚠ **唯一能力面变化**：`dsh-base` 新增两条**默认生效**条目 `working-directory` +
+    `tool-working-directory`（后者给模型一个 `cd` 工具）。评估为可接受 —— 它只改"当前目录"，
+    不绕过 `ctx.fs` 的 workspace 围栏，且容器内 dsh 本就可读写 `/data/dsh`。已记入分析文档备查。
+  - ⚠ **稳定性线未变**：本镜像仍在 alpha 线（`latest`/`next` 仍指向 `0.2.0-rc.2`）。
+  - ⚠ **`DSH_PUBLIC_URL_MIN_VERSION` 刻意保持 `0.2.1-alpha.1` 不变**：它是 `--public-url` 的
+    **能力起点**（"该选项从哪个版本开始存在"），与本 ARG 的"当前锁定版本"语义不同。跟着升到
+    `alpha.2` 会让"卷内 dsh 恰为 alpha.1"的用户被守卫误判为不支持而**静默失去地址公告**。
+    同理，`docs/07` 中英、`.env.example`、`docker-compose.yml` 里描述该下限的注释均未改动。
+
+### Verified
+- **真机（192.168.1.88，真 Docker 29.1.3）构建 + 运行**，镜像 `dsh:a2`：
+  - 镜像内 seed 版本自证：`docker run --entrypoint /opt/dsh-seed/bin/dsh dsh:a2 --version`
+    → `0.2.1-alpha.2`；pnpm → `12.5.1`。
+  - **全硬化下可运行**：`--read-only` + `--tmpfs /tmp:size=128m,exec` + `--cap-drop ALL` +
+    4 项最小 `cap_add` + `no-new-privileges` + 三个卷（`/opt/dsh`、`/data/dsh`、`/workspace`）
+    → `Up (healthy)`，web profile 正常启动，HTTP 可访问。
+  - `--public-url` 端到端打通：日志
+    `[entrypoint] public URL: https://dsh.example.com (dsh 0.2.1-alpha.2)`，
+    且 dsh 自身打印 `dsh web: https://…/?token=…`。
+  - ⚠ 验证机为嵌套 DinD，`mem_limit` / `cpus` 无法应用（cgroupv2 threaded mode），
+    故运行验证剔除了这两项资源限制、保留其余全部硬化 —— 与本项目配置无关（二分实测）。
+- ⚠ **真机观察到一处既有首启现象（已判定与 alpha.2 无关，未在本次修复）**：首次启动时
+  entrypoint 以 root 写 `/data/dsh/profiles/web/cordis.patch.yml`（mode 0600），降权后
+  uid 1000 的 dsh 读不了它（`EACCES: failed to read overlay …`）→ 自愈耗尽 → lifeboat 标记 →
+  自动重启后**停在 lifeboat**，需**手动 `docker restart dsh` 一次**才回到 web profile。
+  归属判定依据：两版 `dsh-app-boot` 的 `loadOverlayPatches` 代码路径完全相同（均
+  `readFileSync` 失败即 `throw`），且写/读该文件的都是本项目脚本（`remote-setup.sh` /
+  `entrypoint.sh`），不随 dsh 版本变化。该现象**与 `docs/zh-CN/01-快速开始.md` 的
+  "首次启动秒级就绪"表述有出入**，属独立既有缺陷，建议单独排期（如 ⑤b 写完该文件后立即
+  `chown` 给运行用户），**不在本次改动范围内**。
+
 ### Added
 - **Cloudflare Tunnel 可选接入层 `docker-compose.cloudflare.yml`（补"家庭宽带无公网 IP"这个缺口）**。
   既有远程方案只有两条路：SSH 隧道（临时、单人）与反向代理 + HTTPS（需要域名解析到主机、

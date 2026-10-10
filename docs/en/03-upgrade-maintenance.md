@@ -68,21 +68,26 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-10-08) | Meaning |
+| tag | Points at (checked 2026-10-10) | Meaning |
 |---|---|---|
 | `latest` | `0.2.0-rc.2` | Stable recommendation |
 | `next` | `0.2.0-rc.2` | Candidate (the rc line) |
-| `alpha` | `0.2.1-alpha.1` | Preview (**the version this image currently pins**) |
+| `alpha` | `0.2.1-alpha.2` | Preview (**the version this image currently pins**) |
 
 > ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version (it is
-> `0.2.0-rc.2`; the newest `0.2.1-alpha.1` sits under `alpha`). Always pass the full version:
-> `@0.2.1-alpha.1`. Verify with `docker exec dsh dsh --version`.
+> `0.2.0-rc.2`; the newest `0.2.1-alpha.2` sits under `alpha`). Always pass the full version:
+> `@0.2.1-alpha.2`. Verify with `docker exec dsh dsh --version`.
 >
-> 📌 This image pins `0.2.1-alpha.1` to gain `--public-url` (advertised public root — see section 3.6
+> 📌 This image pins `0.2.1-alpha.2` to gain `--public-url` (advertised public root — see section 3.6
 > of [07 · Environment variables](07-environment-variables.md)). Note that **by stability line
 > alpha < rc**, so the image now tracks the preview line (by semver numeric order,
-> `0.2.1-alpha.1` > `0.2.0-rc.2`, so it is still a forward move). If you value stability more, override
+> `0.2.1-alpha.2` > `0.2.0-rc.2`, so it is still a forward move). If you value stability more, override
 > `DSH_VERSION` back to `0.2.0-rc.2` — at the cost of losing `--public-url`.
+>
+> 📌 **Upgrading from `0.2.1-alpha.1` to `0.2.1-alpha.2` needs no session backup**: both versions
+> report `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration
+> in 0.1.6→0.1.7). The contract-by-contract review lives in
+> `docs/analysis/2026-10-10-dsh-0.2.1-alpha.2-适配分析.md` (Chinese).
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/steven-stack-s/dsh-docker-server?sort=semver&color=5965d8)](https://github.com/steven-stack-s/dsh-docker-server/releases)
 [![Image Build](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml/badge.svg)](https://github.com/steven-stack-s/dsh-docker-server/actions/workflows/docker-image.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-dsh--docker--server-2496ED?logo=docker&logoColor=white)](https://github.com/steven-stack-s/dsh-docker-server/pkgs/container/dsh-docker-server)
-[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--alpha.1-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
+[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--alpha.2-4aa3ff)](https://github.com/deepseek-ai/deepseek-harness)
 [![License](https://img.shields.io/github/license/steven-stack-s/dsh-docker-server?color=3b7a57)](https://github.com/steven-stack-s/dsh-docker-server/blob/main/LICENSE)
 
 > Deploy [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) — DeepSeek's official AI coding agent framework (Web UI + CLI) — on **any Docker environment** with one command.

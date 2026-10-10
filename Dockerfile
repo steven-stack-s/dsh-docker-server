@@ -166,10 +166,10 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-10-08 核对 npm dist-tags）：
+# 当前三个 tag 的实测指向（2026-10-10 核对 npm dist-tags）：
 #   latest -> 0.2.0-rc.2    （稳定推荐版）
 #   next   -> 0.2.0-rc.2    （rc 线）
-#   alpha  -> 0.2.1-alpha.1 （本镜像锁定的版本）
+#   alpha  -> 0.2.1-alpha.2 （本镜像锁定的版本）
 # 注：rc/alpha 线始终跑在 latest 之前；latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在
 #     next / alpha tag 下。
 # 用 latest 会带来两个真问题：
@@ -179,17 +179,26 @@ FROM base AS runtime
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
 # 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
 #
-# 【为什么锁 0.2.1-alpha.1（2026-10-08 评估后决定）】
-#   唯一动机是拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内 127.0.0.1」，
-#   见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。评估结论（81 包全量比对）：
-#   本项目依赖的关键契约**逐字节未变** —— dsh-base 的 patch/lib、CLI 的 lib、profile 的
-#   pnpm 布局（nodeLinker: hoisted）、原生绑定 hook、dsh.bundle.patch 校验、信任围栏。
-#   两个候选高风险项经核实**均不触发**：RETIRED_BUNDLES 不在本项目的 bundles 列表里
-#   （web/lifeboat profile 只列 dsh-base + dsh-web-app）；dsh-hmr 新增的原生依赖恰好被
-#   既有的 NARB_DISABLE_NATIVE_CACHE 覆盖，且该绑定已在镜像内验证可用。
-#   ⚠ 取舍：按 semver 数字段 0.2.1-alpha.1 > 0.2.0-rc.2，但**稳定性线是 alpha < rc** ——
-#     本镜像自此从 rc 线退回到 alpha 线（dist-tag 也印证：next/latest 仍指向 0.2.0-rc.2）。
-ARG DSH_VERSION=0.2.1-alpha.1
+# 【为什么是 0.2.1-alpha.2】
+#   锁 alpha 线的动机未变：拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内
+#   127.0.0.1」，见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。alpha.1 → alpha.2
+#   是同线小版本前进，逐契约核对结论（完整分析见 docs/analysis/
+#   2026-10-10-dsh-0.2.1-alpha.2-适配分析.md）：
+#   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、无新增迁移包 ——
+#     与 0.1.6→0.1.7 那次「V3→V4 单向迁移、必须备份」性质根本不同，本次**无需备份会话**。
+#   · --public-url **仍在**（同一份 parsePublicUrl chunk），真实启动已实测打印公告 URL。
+#   · hmr 条目**逐字节相同**；RETIRED_BUNDLES 仍只含 schedule-bundle，本项目零引用。
+#   · 上游移除的 6 个包（webhook / hooks-* / hook-protocol / subagent-in-process-driver）
+#     在本项目**引用数均为 0**。
+#   · ⚠ 唯一能力面变化：base 新增两条**默认生效**条目 working-directory +
+#     tool-working-directory（后者给模型一个 cd 工具）。评估为可接受（不绕过 ctx.fs 围栏、
+#     容器内本就可写 /data/dsh），但已记入上述分析文档备查。
+#   ⚠ 稳定性线未变：本镜像仍在 alpha 线（按稳定性 alpha < rc；dist-tag 印证 latest/next
+#     仍指向 0.2.0-rc.2）。需要稳定线可覆盖 DSH_VERSION 回退到 0.2.0-rc.2（代价是失去
+#     --public-url）。
+#   ⚠ 注意 DSH_PUBLIC_URL_MIN_VERSION 是**能力起点**、与本 ARG 语义不同，**不跟着升**
+#     （见 scripts/librescue.sh 的说明）。
+ARG DSH_VERSION=0.2.1-alpha.2
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。
