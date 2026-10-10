@@ -45,15 +45,16 @@
     且 dsh 自身打印 `dsh web: https://…/?token=…`。
   - ⚠ 验证机为嵌套 DinD，`mem_limit` / `cpus` 无法应用（cgroupv2 threaded mode），
     故运行验证剔除了这两项资源限制、保留其余全部硬化 —— 与本项目配置无关（二分实测）。
-- ⚠ **真机观察到一处既有首启现象（已判定与 alpha.2 无关，未在本次修复）**：首次启动时
-  entrypoint 以 root 写 `/data/dsh/profiles/web/cordis.patch.yml`（mode 0600），降权后
-  uid 1000 的 dsh 读不了它（`EACCES: failed to read overlay …`）→ 自愈耗尽 → lifeboat 标记 →
-  自动重启后**停在 lifeboat**，需**手动 `docker restart dsh` 一次**才回到 web profile。
+- **真机观察到的首启缺陷已定位并修复**（原"既有现象"记录，归属判定与 alpha.2 无关）：
+  首次启动时 entrypoint 以 root 写 `/data/dsh/profiles/web/cordis.patch.yml`（mode 0600），
+  降权后 uid 1000 的 dsh 读不了它（`EACCES: failed to read overlay …`）→ 自愈耗尽 →
+  lifeboat 标记 → 自动重启后**停在 lifeboat**，需手动 `docker restart dsh` 一次才回到
+  web profile；与 `docs/zh-CN/01-快速开始.md` 的"首次启动秒级就绪"承诺有出入。
   归属判定依据：两版 `dsh-app-boot` 的 `loadOverlayPatches` 代码路径完全相同（均
   `readFileSync` 失败即 `throw`），且写/读该文件的都是本项目脚本（`remote-setup.sh` /
-  `entrypoint.sh`），不随 dsh 版本变化。该现象**与 `docs/zh-CN/01-快速开始.md` 的
-  "首次启动秒级就绪"表述有出入**，属独立既有缺陷，建议单独排期（如 ⑤b 写完该文件后立即
-  `chown` 给运行用户），**不在本次改动范围内**。
+  `entrypoint.sh`），**不随 dsh 版本变化** —— 属既有缺陷，非本次升级引入。
+  **已在紧随其后的提交修复**（entrypoint 新增 ⑤c 在降权前就地收尾属主 + 新增门禁
+  `test-entrypoint-ownership.sh`，真机对照验证 EACCES/lifeboat 均归零、首启一次进 web）。
 
 ### Added
 - **Cloudflare Tunnel 可选接入层 `docker-compose.cloudflare.yml`（补"家庭宽带无公网 IP"这个缺口）**。
