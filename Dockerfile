@@ -166,10 +166,10 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-10-10 核对 npm dist-tags）：
+# 当前三个 tag 的实测指向（2026-10-15 核对 npm dist-tags）：
 #   latest -> 0.2.0-rc.2    （稳定推荐版）
 #   next   -> 0.2.0-rc.2    （rc 线）
-#   alpha  -> 0.2.1-alpha.2 （本镜像锁定的版本）
+#   alpha  -> 0.2.1-alpha.3 （本镜像锁定的版本）
 # 注：rc/alpha 线始终跑在 latest 之前；latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在
 #     next / alpha tag 下。
 # 用 latest 会带来两个真问题：
@@ -179,26 +179,37 @@ FROM base AS runtime
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
 # 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
 #
-# 【为什么是 0.2.1-alpha.2】
+# 【为什么是 0.2.1-alpha.3】
 #   锁 alpha 线的动机未变：拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内
-#   127.0.0.1」，见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。alpha.1 → alpha.2
+#   127.0.0.1」，见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。alpha.2 → alpha.3
 #   是同线小版本前进，逐契约核对结论（完整分析见 docs/analysis/
-#   2026-10-10-dsh-0.2.1-alpha.2-适配分析.md）：
-#   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、无新增迁移包 ——
+#   2026-10-15-dsh-0.2.1-alpha.3-适配分析.md）：
+#   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、迁移包集合完全相同 ——
 #     与 0.1.6→0.1.7 那次「V3→V4 单向迁移、必须备份」性质根本不同，本次**无需备份会话**。
-#   · --public-url **仍在**（同一份 parsePublicUrl chunk），真实启动已实测打印公告 URL。
+#   · --public-url **仍在**（同一份 parsePublicUrl chunk，文件名
+#     public-url-D_dMK-yI.js 两版一致）；真实启动实测打印公告 URL。
 #   · hmr 条目**逐字节相同**；RETIRED_BUNDLES 仍只含 schedule-bundle，本项目零引用。
-#   · 上游移除的 6 个包（webhook / hooks-* / hook-protocol / subagent-in-process-driver）
-#     在本项目**引用数均为 0**。
-#   · ⚠ 唯一能力面变化：base 新增两条**默认生效**条目 working-directory +
-#     tool-working-directory（后者给模型一个 cd 工具）。评估为可接受（不绕过 ctx.fs 围栏、
-#     容器内本就可写 /data/dsh），但已记入上述分析文档备查。
+#   · **本次是历次升级中变更面最小的一次**：包级净增 3 个（dsh-api-remote-access 进 base、
+#     dsh-client-ui-secret-mask 与 dsh-harness-dev-context 进 web-app）、**移除 0 个**；
+#     渲染条目**只有新增、零移除**。
+#   · ⚠ 唯一**模型可见**的变化：harness-dev-context 让模型得知容器内 dsh checkout 路径与
+#     Web GUI 公开 URL。评估为可接受 —— 该路径容器内本就可读（dsh 自己跑在那儿）、公开 URL
+#     正是本项目已通过 DSH_PUBLIC_URL 主动公告的信息，且它**不改写系统提示**。要关闭可在
+#     profile 的 cordis.patch.yml 写 `- id: harness-dev-context` + `disabled: true`（本项目
+#     当前不做，仅备查）。
+#   · ✅ **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加
+#     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，在 alpha.3 下
+#     渲染结果与 alpha.2 **逐行一致**；宿主进程实测（配 bootstrap 凭据）无凭据 HTTP 401、
+#     带 token 303。真容器内实测（默认配置）登录页 200、未认证 API 403 —— 两版一致。
+#   · ⚠ 上游另新增 base 条目 remote-access（@deepseek-ai/dsh-api-remote-access，非 owner Peer
+#     的方法级访问控制）—— 与本项目注入的 `id: remote` 认证插件是**两个不同的东西**、
+#     owner 永远不被检查，单用户容器部署无行为影响。升级时勿混淆。
 #   ⚠ 稳定性线未变：本镜像仍在 alpha 线（按稳定性 alpha < rc；dist-tag 印证 latest/next
 #     仍指向 0.2.0-rc.2）。需要稳定线可覆盖 DSH_VERSION 回退到 0.2.0-rc.2（代价是失去
 #     --public-url）。
 #   ⚠ 注意 DSH_PUBLIC_URL_MIN_VERSION 是**能力起点**、与本 ARG 语义不同，**不跟着升**
 #     （见 scripts/librescue.sh 的说明）。
-ARG DSH_VERSION=0.2.1-alpha.2
+ARG DSH_VERSION=0.2.1-alpha.3
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。

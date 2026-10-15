@@ -6,6 +6,74 @@
 
 ## [Unreleased]
 
+## [v0.6.4-dsh-0.2.1-alpha.3] - 2026-10-15
+
+### Changed
+- **DSH 升级到 `0.2.1-alpha.3`**（`Dockerfile` 的 `ARG DSH_VERSION`）。这是 `0.2.1-alpha.2` →
+  `0.2.1-alpha.3` 的**同线小版本前进**，锁 alpha 线的动机（拿到 `--public-url`）不变。
+  完整逐契约分析见 `docs/analysis/2026-10-15-dsh-0.2.1-alpha.3-适配分析.md`，要点：
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。这与 0.1.6→0.1.7
+    那次的「V3→V4 单向迁移、必须备份」性质**根本不同**，勿套用旧结论。
+  - **本次是历次升级中变更面最小的一次**：包级 **净增 3、移除 0**（上次是 +15/−6）；
+    渲染条目按 `- id:` 精确对照**只有新增、零移除**。
+  - **`--public-url` 续存**：选项仍在，且是同一份 `parsePublicUrl` 模块（chunk 名
+    `public-url-D_dMK-yI.js` 两版一致）；真实 `dsh web` 启动实测打印访问 token。
+  - **`hmr` 条目逐字节相同**；`RETIRED_BUNDLES` 仍**只含** `schedule-bundle`，本项目
+    web/lifeboat profile 只列 `dsh-base` + `dsh-web-app`，零引用。
+  - ✅ **本项目核心耦合点（认证插件注入链路）已端到端实测**：按项目真实方式（profile
+    `bundles` 加 `@xgone/dsh-remote` + `cordis.patch.yml` 写 `- id: remote` 覆盖 config）
+    在两版上分别验证 —— 渲染出的插件段**逐行一致**，`--dump-config` 均退出 0、bootstrap
+    凭据正确注入；宿主进程实测（配 bootstrap 凭据）**无凭据 401 / 带 token 303**。
+    真容器内实测（默认配置）**登录页 200 / 未认证 API 403**，两版一致。
+  - **新增 3 个包**（均在对应 bundle 中**默认生效**）：`dsh-api-remote-access`（进 `dsh-base`）、
+    `dsh-client-ui-secret-mask` 与 `dsh-harness-dev-context`（进 `dsh-web-app`）。本项目对三者
+    **引用数均为 0**。
+  - ⚠ **唯一模型可见的变化**：`harness-dev-context` 让模型得知容器内 dsh checkout 路径与 Web GUI
+    公开 URL。评估为**可接受** —— 该路径容器内本就可读（dsh 自己跑在那儿）、公开 URL 正是本项目
+    已通过 `DSH_PUBLIC_URL` 主动公告的信息，且它**不改写系统提示**。要关闭可在 profile 的
+    `cordis.patch.yml` 写 `- id: harness-dev-context` + `disabled: true`（**本项目当前不做**，仅备查）。
+  - ⚠ 上游另新增 base 条目 `remote-access`（`@deepseek-ai/dsh-api-remote-access`，**非 owner Peer**
+    的方法级访问控制）—— 与本项目注入的 `id: remote`（`@xgone/dsh-remote` 密码+MFA 认证）是
+    **两个不同的东西**、id 不同、无冲突，且 **owner 永远不被检查**，单用户容器部署无行为影响。
+    **升级时勿混淆二者。**
+  - ⚠ **plan mode 结构性重构**（对本项目零影响）：组 id `plan-mode` → `planning`，组内新增
+    `tool-fs` 显式声明（`read/write/edit: false`、`readImage: true`）与 `compaction` 子组，
+    并移除 plan mode 对 `schedule_*` 的 6 处 `toolFilter.deny`（该 bundle 已退休，无需再屏蔽）。
+    方向是**把隐式提示词约束改为显式声明（收紧）**，不是放开。
+    注：`toolFilter` **机制本身未从 alpha.3 移除**（仍用于子代理 `ToolRestriction`），
+    消失的只是 plan mode 的那 6 处 deny —— 勿得出"上游删了 toolFilter"的错误结论。
+  - ⚠ **稳定性线未变**：本镜像仍在 alpha 线（`latest`/`next` 仍指向 `0.2.0-rc.2`）。
+  - ⚠ **`DSH_PUBLIC_URL_MIN_VERSION` 刻意保持 `0.2.1-alpha.1` 不变**：它是 `--public-url` 的
+    **能力起点**（"该选项从哪个版本开始存在"），与本 ARG 的"当前锁定版本"语义不同。跟着升会让
+    "卷内 dsh 为 `alpha.1`/`alpha.2`"的用户被守卫误判为不支持而**静默失去地址公告**。
+    同理，`docs/07` 中英、`.env.example`、`docker-compose.yml` 及 `test-public-url-guard.sh`
+    里描述该下限的内容均未改动。
+
+### Verified
+- **真机（192.168.1.88:3333，真 Docker 29.1.3）构建 + 全硬化运行 + 对照验证**：
+  - 构建镜像 `dsh-alpha3:test`（`docker build --build-arg DSH_VERSION=0.2.1-alpha.3`）成功。
+  - **seed 版本自证**：`docker run --entrypoint /opt/dsh-seed/bin/dsh dsh-alpha3:test --version`
+    → `0.2.1-alpha.3`；pnpm → `12.5.1`；镜像内认证插件 seed → `@xgone/dsh-remote@0.3.5`。
+  - **全硬化下可运行**：`--read-only` + `--tmpfs /tmp:size=128m,exec` + `--cap-drop ALL` +
+    5 项最小 `cap_add` + `no-new-privileges` + 三个卷（`/opt/dsh`、`/data/dsh`、`/workspace`）
+    → `Up (healthy)`，启动日志**零警告零错误**。
+  - **首启一次到位**：`boot attempt 1/4 (profile=web)` → `dsh healthy on 127.0.0.1:3081`，
+    **无 EACCES、无 lifeboat、无需手动 restart**（上期修复的属主收尾在 alpha.3 下继续有效）。
+  - **`--public-url` 端到端打通**：`[entrypoint] public URL: https://dsh.example.com (dsh 0.2.1-alpha.3)`。
+  - **HTTP 认证边界**：容器内探测 `index` → **200**（登录页）、`api` → **403**（未认证被拦截）。
+  - ✅ **同代码严格对照**（用同一份仓库代码、只换 `DSH_VERSION` 构建 `dsh-alpha2-ctrl:test`）：
+    alpha.2 与 alpha.3 在 **首启进度、健康状态、`--public-url` 公告、HTTP 认证边界（200/403）**
+    上**完全一致** —— 证明本次升级未改变部署行为。
+  - ✅ **seed→卷升级链路**：用 alpha.2 写过的卷 + alpha.3 镜像启动，日志显示
+    `seeding dsh into /opt/dsh (image seed 0.2.1-alpha.3 > volume 0.2.1-alpha.2)` →
+    `effective=0.2.1-alpha.3` → `healthy`。**"镜像升级携带 dsh" 机制继续有效**。
+- **全量门禁 39/39 全绿**（真机 + node 容器内执行）：含 `test-dsh-version-pin.sh` 对
+  "ARG / README 徽章 / docs03 表 / CHANGELOG 段"四处版本号同步性的强制校验。
+- **静态契约核对**：16 项耦合契约逐项通过（见分析文档 §三），阻断 0 / 高风险 0；
+  两版本隔离安装对照（包数 300 → 303，净增 3、移除 0；渲染条目按 `- id:` 精确对照
+  只有新增、零移除）。
+
 ## [v0.6.3-dsh-0.2.1-alpha.2] - 2026-10-10
 
 ### Changed
