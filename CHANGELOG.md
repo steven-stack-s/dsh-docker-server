@@ -6,6 +6,46 @@
 
 ## [Unreleased]
 
+## [v0.6.5-dsh-0.2.1-alpha.4] - 2026-10-16
+
+### Changed
+- **DSH 升级到 `0.2.1-alpha.4`**（`Dockerfile` 的 `ARG DSH_VERSION`）。这是 `0.2.1-alpha.3` →
+  `0.2.1-alpha.4` 的**同线小版本前进**，锁 alpha 线的动机（拿到 `--public-url`）不变。
+  完整逐契约分析见 `docs/analysis/2026-10-16-dsh-0.2.1-alpha.4-适配分析.md`，要点：
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。这与 0.1.6→0.1.7
+    那次的「V3→V4 单向迁移、必须备份」性质**根本不同**，勿套用旧结论。
+  - **渲染配置差异仅 9 行、能力面零变化**：1214 → 1223 行，全部差异是新增的
+    `tool-plugin-market` **禁用行**（3 处均为 `disabled: true` 或条件禁用），与既有的
+    `tool-plugin-manager` 形态完全一致 —— **零移除、零其它变化**。这是历次升级中渲染差异最干净的一次。
+  - **包级 +4 / −3 = 净增 1**（303 → 304）。新增 4 个包是上游新的**可选**「插件市场」子系统
+    （`dsh-plugin-market` / `dsh-plugin-market-index` / `dsh-client-ui-plugin-market` /
+    `dsh-experimental-plugin-market-bundle`），**均不在 `dsh-base` 或 `dsh-web-app` 的 bundle patch
+    内**，本项目 profile 只列这两个 bundle，故**不会装载**（引用数 0）；移除的 3 个包
+    （`dsh-client-store` / `dsh-client-ui-primitives` / `dsh-client-ui-slots`）在本项目**引用数均为 0**。
+  - **`--public-url` 续存**：选项仍在，且是同一份 `parsePublicUrl` 模块（chunk 名
+    `public-url-D_dMK-yI.js` 两版一致）。
+  - `RETIRED_BUNDLES` **未变**（仍只含 `@deepseek-ai/dsh-experimental-schedule-bundle`，本项目零引用）；
+    `hmr` 条目**逐字节相同**；`nodeLinker: hoisted` 未变；CLI 透传（`allowUnknownOption` /
+    `passThroughOptions`）未变；`--patch` 叠加层语义未变（对既有 `settings` 行实测生效）；
+    三个 `--dump-*` 选项均在。
+  - ⚠ **本次新增包全部为可选、默认禁用，无模型可见变化**（与上次 alpha.3 引入
+    `harness-dev-context` 不同）。
+- **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加 `@xgone/dsh-remote`
+  + `cordis.patch.yml` 写 `- id: remote` 覆盖 `config`，在 alpha.4 下渲染出的插件段与 alpha.3
+  **逐字节一致**（8 行 / 163 字节）；两版真实启动均成功并打印访问 token，HTTP 认证边界同为
+  登录页 `200` / 未认证 API `403`。
+
+### Verified
+- 真机（Docker 29.1.3）构建 `dsh-alpha4:test` 并全硬化启动：只读根 FS + `--cap-drop ALL`
+  （仅补 CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID）+ `no-new-privileges` + 三卷挂载
+  → 容器 `Up (healthy)`，启动日志**零 warning / 零 error**，首启一次到位（无 EACCES、
+  无 lifeboat、无需手动重启），seed→卷升级链路正确，镜像内 seed 自证 `0.2.1-alpha.4`。
+- 全量门禁 `scripts/t/test-*.sh` 在真机 node 容器内 **39/39 PASS、0 FAIL**；
+  e2e 容器自检（`e2e-container-selftest.sh`）**PASS**。
+- 本地沙箱因 `/data/dsh` 不可写、缺 `node` 而有 22 项环境性失败，已用 `git stash` 在未改动
+  代码上复现同样失败，确证与本次改动无关。
+
 ## [v0.6.4-dsh-0.2.1-alpha.3] - 2026-10-15
 
 ### Changed
