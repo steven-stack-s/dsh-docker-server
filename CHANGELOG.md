@@ -6,6 +6,48 @@
 
 ## [Unreleased]
 
+## [v0.6.6-dsh-0.2.1-rc.2] - 2026-10-18
+
+### Changed
+- **DSH 换线到 `0.2.1-rc.2`**（`Dockerfile` 的 `ARG DSH_VERSION`），从 `0.2.1-alpha.4` 的
+  **alpha 线**换到 **rc 线**。这不是同线小版本前进，而是一次**换线**，但方向是前进：
+  按 semver 数字段 `0.2.1-rc.2` > `0.2.1-alpha.4`（同数字段下 rc 高于 alpha），
+  且 `rc.2` 发布于 2026-10-17、晚于 `alpha.5`（10-16）—— rc 线是从 alpha 线转正而来。
+  **按稳定性线 alpha < rc，本次同时提升了稳定性。**
+  完整逐契约分析见 `docs/analysis/2026-10-18-dsh-0.2.1-rc.2-适配分析.md`，要点：
+  - ✅ **换线的前提：`--public-url` 已在 rc 线可用**。此前该能力只在 alpha 线可用，故本项目
+    一直锁 alpha；本次实测确认它已随 `0.2.1` 转正进入 rc 线 —— chunk 名与 alpha 线**完全相同**
+    （`public-url-D_dMK-yI.js`）、`parsePublicUrl` 仍在 `dsh-web-app` 的 `startup.js`/`index.js`，
+    项目侧守卫 `rescue_supports_public_url` 判定 `0.2.1-rc.2` 为支持，真实启动实测打印 token。
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。这与 0.1.6→0.1.7
+    那次的「V3→V4 单向迁移、必须备份」性质**根本不同**，勿套用旧结论。
+  - **包级 +2 / −0**（304 → 306）。新增的 2 个包**进的是本项目实际装载的 bundle，故会生效**：
+    `dsh-web-deepseek-api`（进 `dsh-base`，为 `ctx.web` 提供 DeepSeek 搜索/抓取 provider）、
+    `dsh-client-ui-deepseek-model-label-1017`（进 `dsh-web-app`，UI 模型标签）。均为
+    **纯功能增强、非破坏性**，本项目对其内部 API 的引用数为 0。
+  - **渲染配置差异仅 6 行**（1223 → 1229），全部是上述 2 个新条目的新增 —— **零移除、零修改**。
+  - `RETIRED_BUNDLES` **未变**（仍只含 `@deepseek-ai/dsh-experimental-schedule-bundle`，本项目零引用）；
+    `hmr` 条目**逐字节相同**；`nodeLinker: hoisted` 未变；CLI 透传（`allowUnknownOption` /
+    `passThroughOptions`）未变；`--patch` 叠加层语义未变（对既有 `settings` 行实测生效）；
+    三个 `--dump-*` 选项均在。
+  - ⚠ **仍不是 `latest`**：`latest` 仍指向 `0.2.0-rc.2`（旧的 `0.2.0` 数字段）。若只要绝对稳定、
+    可接受失去 `--public-url`，可覆盖 `DSH_VERSION` 回退到 `0.2.0-rc.2`。
+- **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加 `@xgone/dsh-remote`
+  + `cordis.patch.yml` 写 `- id: remote` 覆盖 `config`，在 `rc.2` 下渲染出的插件段与 `alpha.4`
+  **逐字节一致**（8 行 / 163 字节）；真实启动打印访问 token，HTTP 认证边界同为
+  登录页 `200` / 未认证 API `403`。
+
+### Verified
+- 真机（Docker 29.1.3）构建并全硬化启动：只读根 FS + `--cap-drop ALL`
+  （仅补 CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID）+ `no-new-privileges` + 三卷挂载
+  → 容器 `Up (healthy)`，启动日志**零 warning / 零 error**，首启一次到位（无 EACCES、
+  无 lifeboat、无需手动重启），seed→卷升级链路正确，镜像内 seed 自证 `0.2.1-rc.2`。
+- 全量门禁 `scripts/t/test-*.sh` 在真机 node 容器内 **39/39 PASS、0 FAIL**；
+  e2e 容器自检（`e2e-container-selftest.sh`）**PASS**。
+- 本地沙箱因 `/data/dsh` 不可写、缺 `node` 而有环境性失败，已用 `git stash` 在未改动代码上
+  复现同样失败，确证与本次改动无关。
+
 ## [v0.6.5-dsh-0.2.1-alpha.4] - 2026-10-16
 
 ### Changed

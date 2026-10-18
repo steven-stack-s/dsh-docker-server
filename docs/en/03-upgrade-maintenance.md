@@ -68,30 +68,31 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-10-16) | Meaning |
+| tag | Points at (checked 2026-10-18) | Meaning |
 |---|---|---|
-| `latest` | `0.2.0-rc.2` | Stable recommendation |
-| `next` | `0.2.0-rc.2` | Candidate (the rc line) |
-| `alpha` | `0.2.1-alpha.4` | Preview (**the version this image currently pins**) |
+| `latest` | `0.2.0-rc.2` | Stable recommendation (unchanged) |
+| `next` | `0.2.1-rc.2` | Candidate (the rc line — **the version this image currently pins**) |
+| `alpha` | `0.2.1-alpha.5` | Preview |
 
 > ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version (it is
-> `0.2.0-rc.2`; the newest `0.2.1-alpha.4` sits under `alpha`). Always pass the full version:
-> `@0.2.1-alpha.4`. Verify with `docker exec dsh dsh --version`.
+> `0.2.0-rc.2`; the newest `0.2.1-rc.2` sits under `next`). Always pass the full version:
+> `@0.2.1-rc.2`. Verify with `docker exec dsh dsh --version`.
 >
-> 📌 This image pins `0.2.1-alpha.4` to gain `--public-url` (advertised public root — see section 3.6
-> of [07 · Environment variables](07-environment-variables.md)). Note that **by stability line
-> alpha < rc**, so the image now tracks the preview line (by semver numeric order,
-> `0.2.1-alpha.4` > `0.2.0-rc.2`, so it is still a forward move). If you value stability more, override
-> `DSH_VERSION` back to `0.2.0-rc.2` — at the cost of losing `--public-url`.
+> 📌 This image pins `0.2.1-rc.2` to gain `--public-url` (advertised public root — see section 3.6
+> of [07 · Environment variables](07-environment-variables.md)). That capability **used to exist only
+> on the alpha line**, which is why this project pinned alpha; it has now **graduated into the rc
+> line with `0.2.1`**, so the image moved to the more stable line. By semver numeric order,
+> `0.2.1-rc.2` > `0.2.0-rc.2`, so it is a forward move. If you want absolute stability and can
+> accept losing `--public-url`, override `DSH_VERSION` back to `0.2.0-rc.2`.
 >
-> 📌 **Upgrading from `0.2.1-alpha.3` to `0.2.1-alpha.4` needs no session backup**: both versions
+> 📌 **Switching lines from `0.2.1-alpha.4` to `0.2.1-rc.2` needs no session backup**: both versions
 > report `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration
 > in 0.1.6→0.1.7). The contract-by-contract review lives in
-> `docs/analysis/2026-10-16-dsh-0.2.1-alpha.4-适配分析.md` (Chinese). The rendered config differs by
-> **only 9 lines** (all disabled `tool-plugin-market` rows — no capability change); the upstream
-> "plugin market" packages are an **optional bundle** this project does not load, and the three
-> removed packages are referenced zero times here. This project's **auth-plugin injection chain was
-> verified end to end**, with its plugin block byte-identical to alpha.3.
+> `docs/analysis/2026-10-18-dsh-0.2.1-rc.2-适配分析.md` (Chinese). The rendered config differs by
+> **only 6 lines** (all of them the two new entries — zero removals, zero edits); the two added
+> packages (`dsh-web-deepseek-api`, `dsh-client-ui-deepseek-model-label-1017`) land in bundles this
+> project actually loads and are **pure additive features**. This project's **auth-plugin injection
+> chain was verified end to end**, with its plugin block byte-identical to alpha.4.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

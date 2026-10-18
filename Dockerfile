@@ -166,10 +166,10 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-10-16 核对 npm dist-tags）：
-#   latest -> 0.2.0-rc.2    （稳定推荐版）
-#   next   -> 0.2.0-rc.2    （rc 线）
-#   alpha  -> 0.2.1-alpha.4 （本镜像锁定的版本）
+# 当前三个 tag 的实测指向（2026-10-18 核对 npm dist-tags）：
+#   latest -> 0.2.0-rc.2    （稳定推荐版，未动）
+#   next   -> 0.2.1-rc.2    （rc 线，已前进到 0.2.1）
+#   alpha  -> 0.2.1-alpha.5 （预览线）
 # 注：rc/alpha 线始终跑在 latest 之前；latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在
 #     next / alpha tag 下。
 # 用 latest 会带来两个真问题：
@@ -179,35 +179,37 @@ FROM base AS runtime
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
 # 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
 #
-# 【为什么是 0.2.1-alpha.4】
-#   锁 alpha 线的动机未变：拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内
-#   127.0.0.1」，见 entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。alpha.3 → alpha.4
-#   是同线小版本前进，逐契约核对结论（完整分析见 docs/analysis/
-#   2026-10-16-dsh-0.2.1-alpha.4-适配分析.md）：
+# 【为什么是 0.2.1-rc.2】（本次是**换线**：alpha 线 → rc 线）
+#   动机：拿到 --public-url（修「容器/代理后面 GUI 地址被说成容器内 127.0.0.1」，见
+#   entrypoint 的 DSH_PUBLIC_URL 与 docs/07 的 3.6 节）。**该能力此前只在 alpha 线可用，
+#   故本项目一直锁 alpha；本次实测确认它已随 0.2.1 转正进入 rc 线**，于是换到更稳定的线。
+#   逐契约核对结论（完整分析见 docs/analysis/2026-10-18-dsh-0.2.1-rc.2-适配分析.md）：
+#   · ✅ **--public-url 在 rc.2 可用**（换线的前提）：chunk 名与 alpha 线**完全相同**
+#     （public-url-D_dMK-yI.js）、parsePublicUrl 仍在 dsh-web-app 的 startup.js/index.js；
+#     项目侧守卫 rescue_supports_public_url 判定 0.2.1-rc.2 为支持。真实启动实测打印 token。
+#   · **换线方向是前进而非回退**：semver 数字段 0.2.1-rc.2 > 0.2.1-alpha.4（同数字段下
+#     rc 高于 alpha），且 rc.2 发布于 2026-10-17、晚于 alpha.5（10-16）—— rc 线是从 alpha
+#     线转正而来。**按稳定性线则是 alpha < rc，即本次同时提升了稳定性。**
 #   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、迁移包集合完全相同 ——
 #     与 0.1.6→0.1.7 那次「V3→V4 单向迁移、必须备份」性质根本不同，本次**无需备份会话**。
-#   · --public-url **仍在**（同一份 parsePublicUrl chunk，文件名
-#     public-url-D_dMK-yI.js 两版一致）；真实启动实测打印访问 token。
-#   · hmr 条目**逐字节相同**；RETIRED_BUNDLES 仍只含 schedule-bundle，本项目零引用。
-#   · 包级 **+4 / −3 = 净增 1**（303 → 304）。新增 4 个包构成上游新的**可选**「插件市场」
-#     子系统（dsh-plugin-market / dsh-plugin-market-index / dsh-client-ui-plugin-market /
-#     dsh-experimental-plugin-market-bundle），**均不在 dsh-base 或 dsh-web-app 的 bundle
-#     patch 内**，本项目 profile 只列这两个 bundle，故**不会装载**；移除 3 个包
-#     （dsh-client-store / dsh-client-ui-primitives / dsh-client-ui-slots）在本项目**引用数
-#     均为 0**。
-#   · ✅ **渲染配置差异仅 9 行**（1214 → 1223），全部是 `tool-plugin-market` 的**禁用行**
-#     （与既有的 `tool-plugin-manager` 形态完全一致，3 处均为 disabled: true 或条件禁用）
-#     —— **零移除、零其它变化、能力面零变化**。这是历次升级中渲染差异最干净的一次。
+#   · hmr 条目**逐字节相同**；RETIRED_BUNDLES 仍只含 schedule-bundle，本项目零引用；
+#     nodeLinker: hoisted 未变；CLI 透传未变；--patch 叠加层语义未变（对既有 settings 行
+#     实测生效）；三个 --dump-* 选项均在。
+#   · 包级 **+2 / −0**（304 → 306）：新增 dsh-web-deepseek-api（进 dsh-base，为 ctx.web
+#     提供 DeepSeek 搜索/抓取 provider）与 dsh-client-ui-deepseek-model-label-1017
+#     （进 dsh-web-app，UI 模型标签）。**这两个包进的是本项目实际装载的 bundle，故会生效**
+#     —— 均为**纯功能增强、非破坏性**，本项目对它们的引用数为 0（不依赖其内部 API）。
+#   · ✅ **渲染配置差异仅 6 行**（1223 → 1229），全部是上述 2 个新条目的新增
+#     —— **零移除、零修改**。
 #   · ✅ **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加
-#     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，在 alpha.4 下
-#     插件段与 alpha.3 **逐字节一致**（8 行 / 163 字节）；两版真实启动均打印 token，
-#     容器内 HTTP 认证边界同为 登录页 200 / 未认证 API 403。
-#   ⚠ 稳定性线未变：本镜像仍在 alpha 线（按稳定性 alpha < rc；dist-tag 印证 latest/next
-#     仍指向 0.2.0-rc.2）。需要稳定线可覆盖 DSH_VERSION 回退到 0.2.0-rc.2（代价是失去
-#     --public-url）。
+#     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，在 rc.2 下
+#     插件段与 alpha.4 **逐字节一致**（8 行 / 163 字节）；真实启动打印 token，
+#     HTTP 认证边界同为 登录页 200 / 未认证 API 403。
+#   ⚠ 仍不是 latest：latest 仍指向 0.2.0-rc.2（**旧的 0.2.0 数字段**）。若你只要绝对稳定、
+#     可接受失去 --public-url，可覆盖 DSH_VERSION 回退到 0.2.0-rc.2。
 #   ⚠ 注意 DSH_PUBLIC_URL_MIN_VERSION 是**能力起点**、与本 ARG 语义不同，**不跟着升**
 #     （见 scripts/librescue.sh 的说明）。
-ARG DSH_VERSION=0.2.1-alpha.4
+ARG DSH_VERSION=0.2.1-rc.2
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。
