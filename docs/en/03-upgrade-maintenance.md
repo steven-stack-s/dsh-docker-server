@@ -68,31 +68,49 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-10-18) | Meaning |
+| tag | Points at (checked 2026-10-29) | Meaning |
 |---|---|---|
-| `latest` | `0.2.0-rc.2` | Stable recommendation (unchanged) |
-| `next` | `0.2.1-rc.2` | Candidate (the rc line — **the version this image currently pins**) |
-| `alpha` | `0.2.1-alpha.5` | Preview |
+| `latest` | `0.2.1-rc.2` | Stable recommendation (**exactly what this project pinned last round**) |
+| `next` | `0.2.1-rc.4` | Candidate (the rc line, still advancing inside 0.2.1) |
+| `alpha` | `0.2.2-alpha.2` | Preview (**the version this image currently pins**, now on the 0.2.2 line) |
 
 > ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version (it is
-> `0.2.0-rc.2`; the newest `0.2.1-rc.2` sits under `next`). Always pass the full version:
-> `@0.2.1-rc.2`. Verify with `docker exec dsh dsh --version`.
+> `0.2.1-rc.2`; the newest `0.2.2-alpha.2` sits under `alpha`). Always pass the full version:
+> `@0.2.2-alpha.2`. Verify with `docker exec dsh dsh --version`.
 >
-> 📌 This image pins `0.2.1-rc.2` to gain `--public-url` (advertised public root — see section 3.6
-> of [07 · Environment variables](07-environment-variables.md)). That capability **used to exist only
-> on the alpha line**, which is why this project pinned alpha; it has now **graduated into the rc
-> line with `0.2.1`**, so the image moved to the more stable line. By semver numeric order,
-> `0.2.1-rc.2` > `0.2.0-rc.2`, so it is a forward move. If you want absolute stability and can
-> accept losing `--public-url`, override `DSH_VERSION` back to `0.2.0-rc.2`.
+> 📌 Why `0.2.2-alpha.2`: last round (`0.2.1-rc.2`) we were on the rc line. Upstream has now entered
+> the **new 0.2.2 numeric line**, and that line currently ships only alpha (`0.2.2-alpha.1` was never
+> published — verified 404 on npm). So **the numeric line moves forward** (`0.2.2` > `0.2.1`) while
+> **the stability line steps back to preview** (rc → alpha). `--public-url` is still present (same
+> chunk name as last round), so following the new version **does not lose** the capability this
+> project originally pinned alpha for (see section 3.6 of
+> [07 · Environment variables](07-environment-variables.md)). If you value stability more, override
+> `DSH_VERSION` to `0.2.1-rc.4` — at the cost of staying on the 0.2.1 line.
 >
-> 📌 **Switching lines from `0.2.1-alpha.4` to `0.2.1-rc.2` needs no session backup**: both versions
-> report `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration
-> in 0.1.6→0.1.7). The contract-by-contract review lives in
-> `docs/analysis/2026-10-18-dsh-0.2.1-rc.2-适配分析.md` (Chinese). The rendered config differs by
-> **only 6 lines** (all of them the two new entries — zero removals, zero edits); the two added
-> packages (`dsh-web-deepseek-api`, `dsh-client-ui-deepseek-model-label-1017`) land in bundles this
-> project actually loads and are **pure additive features**. This project's **auth-plugin injection
-> chain was verified end to end**, with its plugin block byte-identical to alpha.4.
+> ⚠️ **One user-visible change in the new version: you can no longer open the GUI with a bare URL.**
+> For requests **without a token**, the new version returns **`401`** instead of `200` (body:
+> `dsh web authentication required; reopen the URL printed by dsh web.`); a request **with** the
+> token returns `303` and sets a `HttpOnly` + `SameSite` cookie, after which the cookie carries the
+> session. This is a **security hardening**, and it was verified **not to block** the container
+> scenario:
+> - with `DSH_PUBLIC_URL` set, the startup log prints the **external address + token** — clickable as is;
+> - without it, the log prints the in-container `127.0.0.1` + token; take the token from
+>   `docker logs dsh` and swap in your host address;
+> - the token is not bound to the Host authority, so going through socat from the host still works;
+> - container health checks are **unaffected** (TCP probe, and `probe-ready.js` explicitly treats
+>   "any status code" as the HTTP stack being ready).
+>
+> 📌 **Upgrading from `0.2.1-rc.2` to `0.2.2-alpha.2` needs no session backup**: both versions report
+> `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration in
+> 0.1.6→0.1.7). The contract-by-contract review lives in
+> `docs/analysis/2026-10-29-dsh-0.2.2-alpha.2-适配分析.md` (Chinese). The rendered config differs by
+> 45 lines, all explainable (6 new entries, `tool-presentation` → `tool-executor-ptc` refactor,
+> `modelSelectionSettings` split into `modelSelection`/`modelDiscovery`, and upstream removing
+> `tool-subagent-list-agents` and `ui-deepseek-model-label-1017`); this project references none of
+> them. Packages went +26/−1, but **only 6 of the new ones actually land in this project** — the
+> other 20 are optional/experimental bundles this project does not load. This project's
+> **auth-plugin injection chain was verified end to end**, with its plugin block byte-identical to
+> both alpha.4 and rc.2.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

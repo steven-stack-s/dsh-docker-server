@@ -6,6 +6,58 @@
 
 ## [Unreleased]
 
+## [v0.6.7-dsh-0.2.2-alpha.2] - 2026-10-29
+
+### Changed
+- **DSH 升级到 `0.2.2-alpha.2`**（`Dockerfile` 的 `ARG DSH_VERSION`），从 `0.2.1-rc.2` 的
+  **rc 线**回到 **alpha 线**，同时**跨入新的 0.2.2 数字段**。性质是「数字段前进 + 稳定性退一步」：
+  按 semver `0.2.2-alpha.2` > `0.2.1-rc.4` > `0.2.1-rc.2`（`0.2.2` > `0.2.1` 是前进），
+  但 `0.2.2` 数字段目前**只有 alpha**（`0.2.2-alpha.1` 上游从未发布，实测 npm 404），
+  要跟新数字段就只能走预览线。若更看重稳定性可覆盖 `DSH_VERSION` 到 `0.2.1-rc.4`。
+  完整逐契约分析见 `docs/analysis/2026-10-29-dsh-0.2.2-alpha.2-适配分析.md`，要点：
+  - ✅ **`--public-url` 仍在**（跟随的前提）：chunk 名与上一轮**完全相同**
+    （`public-url-D_dMK-yI.js`）、`parsePublicUrl` 仍在 `dsh-web-app` 的 `startup.js`/`index.js`；
+    真实启动实测打印**带 token 的对外地址**。跟随新版**不会失去**当初锁 alpha 要拿的能力。
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。
+  - `RETIRED_BUNDLES` **内容不变**（仍只含 `@deepseek-ai/dsh-experimental-schedule-bundle`，
+    本项目零引用），但**迁到了新包** `dsh-official-bundles`（由 `dsh-app-boot` 再导出）。
+    属结构性重构、语义等价 —— 核对时别因"旧位置 grep 不到"误判成被删除。
+  - **包级 +26 / −1**（306 → 331），但**只有 6 个新增包会真正装进本项目**（出现在
+    `dsh-base` / `dsh-web-app` 的 bundle patch 内）：`dsh-tool-executor-native`、
+    `dsh-tool-executor-ptc`（进 `dsh-base`）、`dsh-message-quotes`、`dsh-client-ui-file-drag`、
+    `dsh-deliverable-file-references`、`dsh-client-ui-entry-customization`（进 `dsh-web-app`）。
+    其余 20 个（forge / liveshare / cua / recommendations / plugin-* 等）是**可选或实验 bundle**，
+    本项目 profile 只列 `dsh-base` + `dsh-web-app`，故**不装载**。
+    移除的 `dsh-client-ui-deepseek-model-label-1017` 是上游回退了上一版新增的模型标签，本项目零引用。
+  - **渲染配置差异 45 行**（1229 → 1230 行，条目 299 → 300），全部可解释：新增上述 6 个包对应的 7 个渲染条目（`tool-executor-ptc` 出现 2 处）；
+    `tool-presentation`（`mode: ptc`）→ 被 `tool-executor-ptc` 取代（能力重构）；
+    `tool-subagent-list-agents` 子条目被上游移除（包本体仍在，属产品决策）；
+    `modelSelectionSettings: true` → 拆成 `modelSelection` + `modelDiscovery`；
+    移除 `ui-deepseek-model-label-1017`。本项目对以上**全部引用数为 0**。
+  - `hmr` 条目**逐字节相同**；`nodeLinker: hoisted` 未变；CLI 透传未变；`--patch` 语义未变
+    （对既有 `settings` 行实测生效）；`--dump-*` 选项均在。
+- ⚠️ **新版改变了 GUI 的访问方式（安全加固，用户可见）**：对**不带 token** 的访问，由 `200`
+  改为返回 **`401`**（正文 `dsh web authentication required; reopen the URL printed by dsh
+  web.`）；带 token 访问返回 **`303`** 并下发 `HttpOnly` + `SameSite` cookie，之后靠 cookie
+  正常使用（`200`）。**不能再用裸地址直接打开 GUI。**
+  已实测**不阻断容器场景**：token 不绑定 Host authority，经 socat 从宿主地址访问同样 `303`
+  成功、随后 cookie 请求 `200`；设了 `DSH_PUBLIC_URL` 时日志打印的是**对外地址 + token**
+  （可直接点开），未设时从 `docker logs` 取 token 换宿主地址访问即可。
+  **健康检查不受影响**：`HEALTHCHECK` 是 TCP 探测；`scripts/probe-ready.js` 的 L2 明确注释
+  「任何状态码都算 HTTP 栈就绪」，且 L4 的四个启动失败标志都不匹配 401 正文（已实测核对）。
+
+### Verified
+- 真机（Docker 29.1.3）构建并全硬化启动：只读根 FS + `--cap-drop ALL`
+  （仅补 CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID）+ `no-new-privileges` + 三卷挂载
+  → 容器 `Up (healthy)`，启动日志**零 warning / 零 error**，首启一次到位（无 EACCES、
+  无 lifeboat、无需手动重启），seed→卷升级链路正确，镜像内 seed 自证 `0.2.2-alpha.2`。
+- 全量门禁 `scripts/t/test-*.sh` 在真机 node 容器内 **39/39 PASS、0 FAIL**；
+  e2e 容器自检（`e2e-container-selftest.sh`）**PASS**。
+- 认证插件注入链路端到端实测：插件段与 `alpha.4` / `rc.2` **均逐字节一致**（8 行 / 163 字节）。
+- 本地沙箱因 `/data/dsh` 不可写、缺 `node` 而有环境性失败（`spill-local` 的 EACCES 在
+  `rc.2` 下同样出现，已确证与本次改动无关）。
+
 ## [v0.6.6-dsh-0.2.1-rc.2] - 2026-10-18
 
 ### Changed
