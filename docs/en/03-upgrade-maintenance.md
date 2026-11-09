@@ -68,31 +68,28 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-10-29) | Meaning |
+| tag | Points at (checked 2026-11-09) | Meaning |
 |---|---|---|
-| `latest` | `0.2.1-rc.2` | Stable recommendation (**exactly what this project pinned last round**) |
-| `next` | `0.2.1-rc.4` | Candidate (the rc line, still advancing inside 0.2.1) |
-| `alpha` | `0.2.2-alpha.2` | Preview (**the version this image currently pins**, now on the 0.2.2 line) |
+| `latest` | `0.2.2-rc.1` | Stable recommendation (**exactly the version this image pins**) |
+| `next` | `0.2.2-rc.1` | Candidate (the rc line, same version as latest) |
+| `alpha` | `0.2.2-alpha.3` | Preview (published earlier than `rc.1` — `alpha.3` = 11-03, `rc.1` = 11-04) |
 
-> ⚠️ So `npm install -g @deepseek-ai/dsh@latest` does **not** get you the newest version (it is
-> `0.2.1-rc.2`; the newest `0.2.2-alpha.2` sits under `alpha`). Always pass the full version:
-> `@0.2.2-alpha.2`. Verify with `docker exec dsh dsh --version`.
+> ✅ **A first for this project: the pinned version is also `latest`.** So what you get is not a
+> "newest preview" but upstream's own stable recommendation. Still install with the full version
+> (`@0.2.2-rc.1`), because `latest` is a drifting alias — once upstream moves on, it points elsewhere.
+> Verify with `docker exec dsh dsh --version`.
 >
-> 📌 Why `0.2.2-alpha.2`: last round (`0.2.1-rc.2`) we were on the rc line. Upstream has now entered
-> the **new 0.2.2 numeric line**, and that line currently ships only alpha (`0.2.2-alpha.1` was never
-> published — verified 404 on npm). So **the numeric line moves forward** (`0.2.2` > `0.2.1`) while
-> **the stability line steps back to preview** (rc → alpha). `--public-url` is still present (same
-> chunk name as last round), so following the new version **does not lose** the capability this
-> project originally pinned alpha for (see section 3.6 of
-> [07 · Environment variables](07-environment-variables.md)). If you value stability more, override
-> `DSH_VERSION` to `0.2.1-rc.4` — at the cost of staying on the 0.2.1 line.
+> 📌 Why `0.2.2-rc.1`: last round (`0.2.2-alpha.2`) we sat on the alpha line because the 0.2.2
+> numeric line had no rc yet. Upstream has now shipped the rc, so the image **returns to the rc
+> line** (stability restored) and **skips past `alpha.3`** — moving forward *and* getting more
+> stable. `--public-url` is still present (same chunk name as every prior round), so the capability
+> this project has long relied on is unchanged (see section 3.6 of
+> [07 · Environment variables](07-environment-variables.md)).
 >
-> ⚠️ **One user-visible change in the new version: you can no longer open the GUI with a bare URL.**
-> For requests **without a token**, the new version returns **`401`** instead of `200` (body:
-> `dsh web authentication required; reopen the URL printed by dsh web.`); a request **with** the
-> token returns `303` and sets a `HttpOnly` + `SameSite` cookie, after which the cookie carries the
-> session. This is a **security hardening**, and it was verified **not to block** the container
-> scenario:
+> ⚠️ **The GUI still requires a token (unchanged from last round).** Requests **without** a token
+> return **`401`**; a request **with** the token returns `303` and sets a `HttpOnly` + `SameSite`
+> cookie, after which the cookie carries the session. All four probes (bare 401 / token 303 /
+> cookie 200 / unauthenticated API 403) match last round exactly. How to get in:
 > - with `DSH_PUBLIC_URL` set, the startup log prints the **external address + token** — clickable as is;
 > - without it, the log prints the in-container `127.0.0.1` + token; take the token from
 >   `docker logs dsh` and swap in your host address;
@@ -100,17 +97,17 @@ automatically, and the three tags can point at three different versions:
 > - container health checks are **unaffected** (TCP probe, and `probe-ready.js` explicitly treats
 >   "any status code" as the HTTP stack being ready).
 >
-> 📌 **Upgrading from `0.2.1-rc.2` to `0.2.2-alpha.2` needs no session backup**: both versions report
+> 📌 **Upgrading from `0.2.2-alpha.2` to `0.2.2-rc.1` needs no session backup**: both versions report
 > `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration in
 > 0.1.6→0.1.7). The contract-by-contract review lives in
-> `docs/analysis/2026-10-29-dsh-0.2.2-alpha.2-适配分析.md` (Chinese). The rendered config differs by
-> 45 lines, all explainable (6 new entries, `tool-presentation` → `tool-executor-ptc` refactor,
-> `modelSelectionSettings` split into `modelSelection`/`modelDiscovery`, and upstream removing
-> `tool-subagent-list-agents` and `ui-deepseek-model-label-1017`); this project references none of
-> them. Packages went +26/−1, but **only 6 of the new ones actually land in this project** — the
-> other 20 are optional/experimental bundles this project does not load. This project's
-> **auth-plugin injection chain was verified end to end**, with its plugin block byte-identical to
-> both alpha.4 and rc.2.
+> `docs/analysis/2026-11-09-dsh-0.2.2-rc.1-适配分析.md` (Chinese). The rendered config differs by
+> **only 13 lines**: two new entries (`ui-context-menu`, `ui-file-actions`) plus `applyPatch: false`
+> on the existing `tool-fs` rows (a new upstream switch that defaults to off) — **zero removals**;
+> this project references none of them. Packages went +3/−3 (331 stays 331), and **only 2 of the 3
+> new ones actually land here**; the removed `dsh-computer-use` / `dsh-cua` / `dsh-cua-bundle`
+> (upstream dropped the whole cua subsystem) **were never loaded by this project**, so their removal
+> is a no-op for us. This project's **auth-plugin injection chain was verified end to end**, with
+> its plugin block byte-identical across alpha.4, rc.2 and alpha.2.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

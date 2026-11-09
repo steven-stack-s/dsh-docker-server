@@ -6,6 +6,49 @@
 
 ## [Unreleased]
 
+## [v0.6.8-dsh-0.2.2-rc.1] - 2026-11-09
+
+### Changed
+- **DSH 升级到 `0.2.2-rc.1`**（`Dockerfile` 的 `ARG DSH_VERSION`），从 `0.2.2-alpha.2` 的
+  **alpha 线回到 rc 线**。这次是上一轮承诺的兑现：当时锁 alpha 的无奈是 0.2.2 还没有 rc，
+  现在 rc 出来了，于是**稳定性回正**。
+  - **既前进又更稳**：跨过了 `alpha.3`（`0.2.2-rc.1` > `0.2.2-alpha.3`，同数字段下 rc 高于
+    alpha），发布时间也更晚（`rc.1` = 11-04，`alpha.3` = 11-03）。
+  - ✅ **本次锁定的版本同时就是 `latest`（也是 `next`）** —— 项目历史上第一次锁到上游的
+    稳定推荐版本体，而不是"最新预览"。但结论不变：仍要写全版本号，因为 `latest` 是会漂移的别名。
+  - ✅ **`--public-url` 仍在**：chunk 名与历次**完全相同**（`public-url-D_dMK-yI.js`），
+    `parsePublicUrl` 仍在 `dsh-web-app` 的 `startup.js`/`index.js`；真实启动实测打印带 token 的地址。
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。
+  - **包级 +3 / −3**（331 → 331，总数不变、内容流动）：
+    - 新增 `dsh-client-ui-context-menu`、`dsh-client-ui-file-actions`（**这两个会真正装载**，
+      进 `dsh-web-app`）、`dsh-fs-patch`（**不装载**，两个 bundle 的 patch 里都没有它）；
+    - 移除 `dsh-computer-use` / `dsh-cua` / `dsh-cua-bundle` —— 上游**撤掉了整个 cua 子系统**。
+      这三个包**此前就没有被本项目装载**，故移除对本项目**零影响**。
+      （这一条值得记住：包级"移除"≠"能力移除"，要看它是否曾被装载。）
+  - **渲染配置差异仅 13 行**（1230 → 1243 行，条目 300 → 302）：新增 `ui-context-menu`、
+    `ui-file-actions` 两个条目；既有 `tool-fs` 上新增 `applyPatch: false`（共 4 处：顶层 1 +
+    嵌套 3，是上游新引入的**默认关闭**开关，`dsh-fs-patch` 的能力开关，本项目未启用）。
+    **零移除、零其它修改**，本项目对以上引用数均为 0。
+  - `hmr` 条目**逐字节相同**；`nodeLinker: hoisted`、CLI 透传、`--patch` 语义（实测生效）、
+    `--dump-*` 选项均未变。`RETIRED_BUNDLES` **内容不变**（仍只含 schedule-bundle），
+    注意它自 alpha.2 起已迁到新包 `dsh-official-bundles`，在旧位置 grep 不到不等于被删除。
+  - **GUI 认证行为与上一轮一致，无新增变化**：裸访问 `401`、带 token `303` 下发 cookie、
+    cookie 访问 `200`、未认证 API `403` —— 四项实测与 alpha.2 完全相同，故本轮**不需要再改
+    用户访问指引**（上一轮已在 CHANGELOG 与 docs/03 说明）。健康检查仍不受影响。
+
+### Verified
+- 真机（Docker 29.1.3）构建并全硬化启动：只读根 FS + `--cap-drop ALL`
+  （仅补 CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID）+ `no-new-privileges` + 三卷挂载
+  → 容器 `Up (healthy)`，启动日志**零 warning / 零 error**，首启一次到位（无 EACCES、
+  无 lifeboat、无需手动重启），seed→卷升级链路正确，镜像内 seed 自证 `0.2.2-rc.1`。
+- 全量门禁 `scripts/t/test-*.sh` 在真机 node 容器内 **39/39 PASS、0 FAIL**；
+  e2e 容器自检（`e2e-container-selftest.sh`）**PASS**。
+- 认证插件注入链路端到端实测：插件段与 `alpha.4` / `rc.2` / `alpha.2` **四方逐字节一致**
+  （8 行 / 163 字节）；真实启动后带 cookie 访问 `200`、未认证 API `403`。
+- 本地沙箱因 `/data/dsh` 不可写而有环境性失败（`spill-local` 的 EACCES 历次都有，
+  已确证与本次改动无关）。
+
 ## [v0.6.7-dsh-0.2.2-alpha.2] - 2026-10-29
 
 ### Changed

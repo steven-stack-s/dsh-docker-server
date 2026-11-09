@@ -166,69 +166,62 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-10-29 核对 npm dist-tags）：
-#   latest -> 0.2.1-rc.2    （稳定推荐版 —— 正是本项目**上一轮**锁定的版本）
-#   next   -> 0.2.1-rc.4    （rc 线，0.2.1 数字段内继续前进）
-#   alpha  -> 0.2.2-alpha.2 （预览线，**已进入 0.2.2 新数字段**）
-# 注：rc/alpha 线始终跑在 latest 之前；latest 永远拿不到 rc/alpha 线 —— 它们只分别挂在
-#     next / alpha tag 下。
+# 当前三个 tag 的实测指向（2026-11-09 核对 npm dist-tags）：
+#   latest -> 0.2.2-rc.1    （稳定推荐版 —— **正是本镜像锁定的版本**，已从 alpha.2 转正）
+#   next   -> 0.2.2-rc.1    （rc 线，与 latest 指向同一版本）
+#   alpha  -> 0.2.2-alpha.3 （预览线，比 rc.1 更早发布）
+# 注：本次是项目**第一次**锁定的版本同时就是 `latest` —— 不是"最新预览"，而是"稳定推荐版"。
+#     但仍必须写全版本号，因为 latest 这个别名本身会随时间漂移（见下面两个真问题）。
 # 用 latest 会带来两个真问题：
 #   1) 与 docker-compose.yml 的默认值不一致 —— 不传 DSH_VERSION 时，
 #      docker build 与 docker compose build 会产出不同 dsh 版本的镜像；
 #   2) 默认值随 npm 上的 tag 变动而静默漂移，同一份 Dockerfile 在不同时间构建出不同版本。
 # 故这里钉死一个显式版本；要升级就改这一处，或在 compose/.env 里传 DSH_VERSION 覆盖。
-# 注意：rc/alpha 版本必须写全版本号 —— latest 拿不到它们。
+# 注意：rc/alpha 版本必须写全版本号 —— 别指望 latest 能解析到它们（本次恰好 latest 就是
+# rc.1，但那只是"这一段时间"的状态，下次上游前进后 latest 就会指向别处）。
 #
-# 【为什么是 0.2.2-alpha.2】（本次是**跨数字段前进 + 回到 alpha 线**）
-#   上一轮（0.2.1-rc.2）我们换到了 rc 线；本次上游进入**新的 0.2.2 数字段**，且该数字段
-#   目前只有 alpha 线（0.2.2-alpha.2；0.2.2-alpha.1 上游未发布，实测 npm 404）。所以：
-#   · **数字段上仍是前进**：0.2.2-alpha.2 > 0.2.1-rc.4 > 0.2.1-rc.2（0.2.2 > 0.2.1）。
-#   · **稳定性线上退回预览线**（rc → alpha）：0.2.1 数字段的最新是 rc.4，但 0.2.2 数字段
-#     还没有 rc，要跟新数字段就只能走 alpha。若你更看重稳定性，可覆盖 DSH_VERSION 到
-#     0.2.1-rc.4（代价是留在 0.2.1 数字段）。
-#   · **--public-url 仍在**：chunk 名与上一轮**完全相同**（public-url-D_dMK-yI.js），
+# 【为什么是 0.2.2-rc.1】（本次是**同数字段换线：alpha → rc，稳定性回正**）
+#   上一轮（0.2.2-alpha.2）我们在 alpha 线，当时的无奈是因为 0.2.2 数字段**还没有 rc**；
+#   现在上游发布了 0.2.2-rc.1，于是**回到 rc 线**。所以：
+#   · **稳定性回正**（alpha → rc）：这正是上一轮承诺的"等 rc 出来就回到更稳的线"。
+#   · **同时是双向前进**：既跨过了 alpha.3（`0.2.2-rc.1` > `0.2.2-alpha.3`，同数字段下
+#     rc 高于 alpha），发布时间也更晚（rc.1 = 11-04，alpha.3 = 11-03）。
+#   · **本次锁定的版本就是 `latest`**（也是 `next`）—— 项目历史上第一次锁到稳定推荐版本身。
+#     但这不影响"必须写全版本号"的结论：latest 是会漂移的别名，不是一个稳定的坐标。
+#   · **--public-url 仍在**：chunk 名与历次**完全相同**（public-url-D_dMK-yI.js），
 #     parsePublicUrl 仍在 dsh-web-app 的 startup.js / index.js；真实启动实测打印带 token 的
-#     对外地址。所以跟随新版**不会失去**当初锁 alpha 线要拿的那项能力。
-#   逐契约核对结论（完整分析见 docs/analysis/2026-10-29-dsh-0.2.2-alpha.2-适配分析.md）：
+#     地址。跟随新版**不会失去**本项目长期依赖的那项能力。
+#   逐契约核对结论（完整分析见 docs/analysis/2026-11-09-dsh-0.2.2-rc.1-适配分析.md）：
 #   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、迁移包集合完全相同
 #     （catalog + v0-to-v1..v3-to-v4，无新增）→ 本次**无需备份会话**。
 #   · hmr 条目**逐字节相同**；nodeLinker: hoisted 未变；CLI 透传未变；--patch 叠加层语义
 #     未变（对既有 settings 行实测生效）；--dump-* 选项均在。
 #   · RETIRED_BUNDLES **内容不变**（仍只含 @deepseek-ai/dsh-experimental-schedule-bundle，
-#     本项目零引用），但**迁到了新包** dsh-official-bundles（由 dsh-app-boot 再导出）。
-#     这是结构性重构，语义等价 —— 核对时别因为"在旧位置 grep 不到"就误判成被删除。
-#   · 包级 **+26 / −1**（306 → 331）。**但只有 6 个新增包会真正装进本项目**（它们出现在
-#     dsh-base / dsh-web-app 的 bundle patch 里）：dsh-tool-executor-native、dsh-tool-executor-ptc
-#     （进 dsh-base）、message-quotes、ui-file-drag、deliverable-file-references、
-#     ui-entry-customization（进 dsh-web-app）。其余 20 个（forge / liveshare / cua /
-#     recommendations / plugin-* 等）是**可选或实验 bundle**，本项目 profile 只列
-#     dsh-base + dsh-web-app，故**不装载**。移除的 dsh-client-ui-deepseek-model-label-1017
-#     是上游回退了上一版新增的模型标签，本项目零引用。
-#   · ✅ **渲染配置差异 45 行**（1229 → 1230 行，条目 299 → 300），全部可解释：
-#     - 新增 6 个包对应的 7 个渲染条目（tool-executor-ptc 出现 2 处：顶层 + tool-web 内嵌套）；
-#     - `tool-presentation`（config: mode: ptc）→ 被 `tool-executor-ptc` 取代（能力重构）；
-#     - `tool-subagent-list-agents` 子条目被上游移除（包本体仍在，属产品决策）；
-#     - `modelSelectionSettings: true` → 拆成 `modelSelection: true` + `modelDiscovery: true`；
-#     - 移除 ui-deepseek-model-label-1017。
-#     本项目对以上**全部条目/配置项的引用数均为 0**，无破坏性影响。
-#   · ⚠ **认证行为有实质变化（本次最需要告知用户的一点）**：新版对**不带 token 的裸访问**
-#     由 200 改为 **401**（正文 "dsh web authentication required; reopen the URL printed by
-#     dsh web."），带 token 访问返回 **303** 并下发 HttpOnly + SameSite cookie，之后靠 cookie
-#     正常使用（200）。这是**安全加固**，但意味着**不能再用裸地址直接打开 GUI**。
-#     · 已在容器场景验证**不阻断**：token 不绑定 Host authority，经 socat 从宿主地址访问
-#       同样 303 成功，随后 cookie 请求 200；
-#     · 设了 DSH_PUBLIC_URL 时 dsh 打印的是**对外地址 + token**（可直接点开）；未设时打印
-#       容器内 127.0.0.1 + token，需从 docker logs 取 token 换宿主地址访问；
-#     · **健康检查不受影响**：Dockerfile 的 HEALTHCHECK 是 TCP 连接探测；
-#       scripts/probe-ready.js 的 L2 明确注释"任何状态码都算 HTTP 栈就绪"，且 L4 的四个
-#       启动失败标志都不匹配 401 正文（已实测核对）。
+#     本项目零引用）。注意它自 0.2.2-alpha.2 起已**迁到新包** dsh-official-bundles（由
+#     dsh-app-boot 再导出），核对时别因为"在旧位置 grep 不到"就误判成被删除。
+#   · 包级 **+3 / −3**（331 → 331，总数不变但内容是流动的）：
+#     - 新增 dsh-client-ui-context-menu、dsh-client-ui-file-actions（**这两个会真正装载**，
+#       进 dsh-web-app）、dsh-fs-patch（**不装载**，base/web-app 的 patch 里都没有它）；
+#     - 移除 dsh-computer-use / dsh-cua / dsh-cua-bundle —— 上游**撤掉了整个 cua 子系统**。
+#       这三个包**此前也没被本项目装载**（不在这两个 bundle 的 patch 内），故移除对本项目
+#       **零影响**。这一条值得记住：包级"移除"不等于"能力移除"，要看它是否曾被装载。
+#   · ✅ **渲染配置差异仅 13 行**（1230 → 1243 行，条目 300 → 302），全部可解释：
+#     - 新增 2 个条目：`ui-context-menu`、`ui-file-actions`；
+#     - 既有 `tool-fs` 条目新增 `applyPatch: false`（共 4 处：顶层 1 + 嵌套 3），
+#       是上游新引入的**默认关闭**配置项（`dsh-fs-patch` 的能力开关，本项目未启用）；
+#     - **零移除、零其它修改**。本项目对以上引用数均为 0，无破坏性影响。
+#   · **GUI 认证行为与上一轮一致**（无新增变化）：裸访问 401、带 token 303 下发 cookie、
+#     之后 cookie 访问 200、未认证 API 403 —— 四项与 alpha.2 实测完全相同。上一轮已在
+#     CHANGELOG 与 docs/03 里向用户说明过该加固，本轮**不需要再变更用户指引**。
+#     健康检查仍不受影响（HEALTHCHECK 是 TCP 探测；probe-ready.js 的 L2 明确"任何状态码都算
+#     HTTP 栈就绪"，L4 的四个失败标志都不匹配 401 正文）。
 #   · ✅ **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加
-#     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，插件段与前两版
-#     （alpha.4 / rc.2）**逐字节一致**（8 行 / 163 字节）；真实启动打印 token，带 cookie 访问
-#     登录页 200、未认证 API 仍在远端插件门控下 403。
+#     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，插件段与
+#     alpha.4 / rc.2 / alpha.2 **四方逐字节一致**（8 行 / 163 字节）；真实启动带 cookie 访问
+#     200、未认证 API 仍在远端插件门控下 403。
 #   ⚠ 注意 DSH_PUBLIC_URL_MIN_VERSION 是**能力起点**、与本 ARG 语义不同，**不跟着升**
 #     （见 scripts/librescue.sh 的说明）。
-ARG DSH_VERSION=0.2.2-alpha.2
+ARG DSH_VERSION=0.2.2-rc.1
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。
