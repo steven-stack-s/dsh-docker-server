@@ -68,28 +68,27 @@ docker restart dsh
 npm dist-tags are **manually assigned** aliases maintained by the publisher — they do **not** advance
 automatically, and the three tags can point at three different versions:
 
-| tag | Points at (checked 2026-11-09) | Meaning |
+| tag | Points at (checked 2026-11-16) | Meaning |
 |---|---|---|
-| `latest` | `0.2.2-rc.1` | Stable recommendation (**exactly the version this image pins**) |
-| `next` | `0.2.2-rc.1` | Candidate (the rc line, same version as latest) |
-| `alpha` | `0.2.2-alpha.3` | Preview (published earlier than `rc.1` — `alpha.3` = 11-03, `rc.1` = 11-04) |
+| `latest` | `0.2.2-rc.1` | Stable recommendation (**two patches behind what this image pins**) |
+| `next` | `0.2.2-rc.3` | Candidate (the rc line — **the version this image currently pins**) |
+| `alpha` | `0.2.2-alpha.3` | Preview (`alpha.3` = 11-03, earlier than `rc.3`) |
 
-> ✅ **A first for this project: the pinned version is also `latest`.** So what you get is not a
-> "newest preview" but upstream's own stable recommendation. Still install with the full version
-> (`@0.2.2-rc.1`), because `latest` is a drifting alias — once upstream moves on, it points elsewhere.
-> Verify with `docker exec dsh dsh --version`.
+> ⚠️ **This image pins a version ahead of `latest`.** `latest` still sits on `0.2.2-rc.1` while the
+> image pins `0.2.2-rc.3` (which lives under `next`). Last round's "pinned version == `latest`" was a
+> coincidence of timing — which is exactly why `latest` must not be trusted as a coordinate.
+> **Install with the full version** (`@0.2.2-rc.3`). Verify with `docker exec dsh dsh --version`.
 >
-> 📌 Why `0.2.2-rc.1`: last round (`0.2.2-alpha.2`) we sat on the alpha line because the 0.2.2
-> numeric line had no rc yet. Upstream has now shipped the rc, so the image **returns to the rc
-> line** (stability restored) and **skips past `alpha.3`** — moving forward *and* getting more
-> stable. `--public-url` is still present (same chunk name as every prior round), so the capability
-> this project has long relied on is unchanged (see section 3.6 of
+> 📌 Why `0.2.2-rc.3`: last round pinned `0.2.2-rc.1`; this round **advances within the rc line**
+> (skipping `rc.2`). The stability line is unchanged (still rc), just two patch versions newer.
+> `--public-url` is still present (same chunk name as every prior round), so the capability this
+> project has long relied on is unchanged (see section 3.6 of
 > [07 · Environment variables](07-environment-variables.md)).
 >
-> ⚠️ **The GUI still requires a token (unchanged from last round).** Requests **without** a token
+> ⚠️ **The GUI still requires a token (unchanged from prior rounds).** Requests **without** a token
 > return **`401`**; a request **with** the token returns `303` and sets a `HttpOnly` + `SameSite`
 > cookie, after which the cookie carries the session. All four probes (bare 401 / token 303 /
-> cookie 200 / unauthenticated API 403) match last round exactly. How to get in:
+> cookie 200 / unauthenticated API 403) match `rc.1` exactly. How to get in:
 > - with `DSH_PUBLIC_URL` set, the startup log prints the **external address + token** — clickable as is;
 > - without it, the log prints the in-container `127.0.0.1` + token; take the token from
 >   `docker logs dsh` and swap in your host address;
@@ -97,17 +96,21 @@ automatically, and the three tags can point at three different versions:
 > - container health checks are **unaffected** (TCP probe, and `probe-ready.js` explicitly treats
 >   "any status code" as the HTTP stack being ready).
 >
-> 📌 **Upgrading from `0.2.2-alpha.2` to `0.2.2-rc.1` needs no session backup**: both versions report
+> 📌 **Upgrading from `0.2.2-rc.1` to `0.2.2-rc.3` needs no session backup**: both versions report
 > `SESSION_FORMAT_VERSION` 4 and add no migration package (unlike the one-way V3→V4 migration in
 > 0.1.6→0.1.7). The contract-by-contract review lives in
-> `docs/analysis/2026-11-09-dsh-0.2.2-rc.1-适配分析.md` (Chinese). The rendered config differs by
-> **only 13 lines**: two new entries (`ui-context-menu`, `ui-file-actions`) plus `applyPatch: false`
-> on the existing `tool-fs` rows (a new upstream switch that defaults to off) — **zero removals**;
-> this project references none of them. Packages went +3/−3 (331 stays 331), and **only 2 of the 3
-> new ones actually land here**; the removed `dsh-computer-use` / `dsh-cua` / `dsh-cua-bundle`
-> (upstream dropped the whole cua subsystem) **were never loaded by this project**, so their removal
-> is a no-op for us. This project's **auth-plugin injection chain was verified end to end**, with
-> its plugin block byte-identical across alpha.4, rc.2 and alpha.2.
+> `docs/analysis/2026-11-16-dsh-0.2.2-rc.3-适配分析.md` (Chinese).
+> Packages went +14/−7 (331 → 338), but **only 6 of the new ones actually land here** (the other 8
+> do not, including the three cua packages that came back).
+> ⚠️ **3 of the 7 removed packages had actually been loaded** (unlike last round) and were each
+> checked: `office-to-pdf` → folded into `dsh-office-kit` (a capability superset);
+> `api-account-controller` and `deepseek-account-platform` → folded into `dsh-deepseek-account`.
+> **All three are consolidation refactors, not capability loss.** The rendered config differs by
+> 63 lines (10 entries added, 2 removed), all explainable; this project references none of them.
+> ⚠️ `RETIRED_BUNDLES` **gained one entry**, `@deepseek-ai/dsh-experimental-agent-team-profile`;
+> this project's profile lists only `dsh-base` + `dsh-web-app`, so it is unaffected.
+> This project's **auth-plugin injection chain was verified end to end**, with its plugin block
+> byte-identical across alpha.4, rc.2, alpha.2 and rc.1.
 >
 > 📌 The table above is a **snapshot in time**: dist-tags are assigned by hand and can change at any
 > moment — for "where do they point right now", trust the live output of the command in the tip below.

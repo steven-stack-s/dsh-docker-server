@@ -6,6 +6,62 @@
 
 ## [Unreleased]
 
+## [v0.6.9-dsh-0.2.2-rc.3] - 2026-11-16
+
+### Changed
+- **DSH 升级到 `0.2.2-rc.3`**（`Dockerfile` 的 `ARG DSH_VERSION`），从 `0.2.2-rc.1` 在
+  **rc 线内前进**（跨过 `rc.2`）。稳定性线不变（仍 rc），只是向前推进两个补丁版本。
+  - ⚠️ **本镜像现在领先 `latest` 两个版本**：`latest` 仍停在 `0.2.2-rc.1`，而 `0.2.2-rc.3` 挂在
+    `next` 下。上一轮那个"锁定版本 = latest"只是当时的巧合 —— 这正说明必须钉死显式版本号，
+    不能依赖 tag 别名。
+  - ✅ **`--public-url` 仍在**：chunk 名与历次**完全相同**（`public-url-D_dMK-yI.js`），
+    `parsePublicUrl` 仍在 `dsh-web-app` 的 `startup.js`/`index.js`；真实启动实测打印带 token 的地址。
+  - **无会话/设置数据换代**：`SESSION_FORMAT_VERSION` 两版**均为 4**、迁移包集合完全相同
+    （`catalog` + `v0-to-v1`..`v3-to-v4`，无新增）→ **本次升级不需要备份会话**。
+  - ⚠️ **`RETIRED_BUNDLES` 新增一项**：除 `schedule-bundle` 外，多了
+    `@deepseek-ai/dsh-experimental-agent-team-profile`（上游把该实验 bundle 标记为退役，
+    会自动从 profile 的 bundle 列表里剔除）。本项目 profile 只列 `dsh-base` + `dsh-web-app`，
+    **未引用它**，故零影响。
+  - **包级 +14 / −7**（331 → 338）。**14 个新增包中只有 6 个会真正装载**：
+    `dsh-agent-team`、`dsh-tool-agent-team`（进 `dsh-base`）、
+    `dsh-client-ui-account-notifications`、`dsh-client-ui-agent-team`、`dsh-mcp-manager`、
+    `dsh-office-kit`（进 `dsh-web-app`）。其余 8 个不装载，其中包括**又回来的**
+    `dsh-computer-use` / `dsh-cua` / `dsh-cua-bundle`（上一轮 rc.1 刚移除、这轮 rc.3 又加回，
+    但始终不在本项目的 bundle patch 里）。
+  - ⚠️ **移除的 7 个包里有 3 个曾被实际装载**（与上一轮"移除的都没装载过"不同），已逐个核查
+    并确认是**合并重构、不是能力丢失**：
+    - `dsh-office-to-pdf`（原进 `dsh-web-app`）→ 能力并入 `dsh-office-kit`，后者描述为
+      "Office rendering, conversion, and recalculation"，是**能力超集**，lib 内有 pdf 实现；
+    - `dsh-api-account-controller`（原进 `dsh-web-app`，"Expose safe account operations over
+      authenticated Remote"）→ 并入 `dsh-deepseek-account`（lib 内有 controller 实现）；
+    - `dsh-deepseek-account-platform`（原进 `dsh-base`）→ 同样并入 `dsh-deepseek-account`
+      （该包两版都存在，不是新增包）。
+    另外 4 个 `experimental-agent-team*` 原本就没装载，本轮以 `dsh-agent-team` 等正式名转正。
+  - **渲染配置差异 63 行**（1243 → 1288 行，条目 302 → 310）：新增 10 个条目
+    （上述 6 个装载包，其中 `tool-office` 出现 2 处）+ 移除 2 个（`account-controller`、
+    `office-to-pdf`，均已并包），净 +8；另有 `searchProvider` 由 `deepseek-official` 改为
+    `deepseek-search-api`、agent-preset 增加 `customSkillDirs` 等上游配置调整。
+    本项目对以上引用数均为 0。
+  - `hmr` 条目**逐字节相同**；`nodeLinker: hoisted` 未变；`--patch` 语义未变（对既有
+    `settings` 行实测生效）；CLI 透传仍在、`--dump-config` 实测可用。
+    ⚠️ **核对陷阱**：rc.3 把 `dsh/lib/bin.js` **拆成了带哈希的分块文件**
+    （`bin-CwxESKe-.js`、`dump-config-*.js` 等），在旧路径 `bin.js` 里 grep CLI 透传 /
+    `--dump-*` 会**匹配不到**，看起来像"能力被移除"——实际是文件拆分，改用功能实测即可确认仍在。
+  - **GUI 认证行为与历次一致**（无新增变化）：裸访问 `401`、带 token `303` 下发 cookie、
+    cookie 访问 `200`、未认证 API `403` —— 四项实测与 `rc.1` 完全相同，用户访问指引**无需变更**。
+
+### Verified
+- 真机（Docker 29.1.3）构建并全硬化启动：只读根 FS + `--cap-drop ALL`
+  （仅补 CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID）+ `no-new-privileges` + 三卷挂载
+  → 容器 `Up (healthy)`，启动日志**零 warning / 零 error**，首启一次到位（无 EACCES、
+  无 lifeboat、无需手动重启），seed→卷升级链路正确，镜像内 seed 自证 `0.2.2-rc.3`。
+- 全量门禁 `scripts/t/test-*.sh` 在真机 node 容器内 **39/39 PASS、0 FAIL**；
+  e2e 容器自检（`e2e-container-selftest.sh`）**PASS**。
+- 认证插件注入链路端到端实测：插件段与 `alpha.4` / `rc.2` / `alpha.2` / `rc.1`
+  **五方逐字节一致**（8 行 / 163 字节）；真实启动带 cookie 访问 `200`、未认证 API `403`。
+- 本地沙箱因 `/data/dsh` 不可写而有环境性失败（`spill-local` 的 EACCES 历次都有，
+  已确证与本次改动无关）。
+
 ## [v0.6.8-dsh-0.2.2-rc.1] - 2026-11-09
 
 ### Changed

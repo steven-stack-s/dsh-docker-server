@@ -166,12 +166,12 @@ FROM base AS runtime
 # 构建时锁定的 dsh / pnpm 版本。用 build-arg 覆盖即可换版本：--build-arg DSH_VERSION=1.2.3
 #
 # 【为什么不用 latest】npm 的 dist-tag 是发布者手动指定的别名，**不会自动前进**。
-# 当前三个 tag 的实测指向（2026-11-09 核对 npm dist-tags）：
-#   latest -> 0.2.2-rc.1    （稳定推荐版 —— **正是本镜像锁定的版本**，已从 alpha.2 转正）
-#   next   -> 0.2.2-rc.1    （rc 线，与 latest 指向同一版本）
-#   alpha  -> 0.2.2-alpha.3 （预览线，比 rc.1 更早发布）
-# 注：本次是项目**第一次**锁定的版本同时就是 `latest` —— 不是"最新预览"，而是"稳定推荐版"。
-#     但仍必须写全版本号，因为 latest 这个别名本身会随时间漂移（见下面两个真问题）。
+# 当前三个 tag 的实测指向（2026-11-16 核对 npm dist-tags）：
+#   latest -> 0.2.2-rc.1    （稳定推荐版，比本镜像锁定的 rc.3 落后两个版本）
+#   next   -> 0.2.2-rc.3    （rc 线 —— **正是本镜像锁定的版本**）
+#   alpha  -> 0.2.2-alpha.3 （预览线，比 rc.3 更早发布）
+# 注：本次回到"锁定版本挂在 rc 线（next）"的常态 —— 上一轮那个"锁定版本 = latest"只是
+#     特定时刻的巧合。这正说明为什么必须钉死显式版本号而不能依赖 tag 别名。
 # 用 latest 会带来两个真问题：
 #   1) 与 docker-compose.yml 的默认值不一致 —— 不传 DSH_VERSION 时，
 #      docker build 与 docker compose build 会产出不同 dsh 版本的镜像；
@@ -180,48 +180,58 @@ FROM base AS runtime
 # 注意：rc/alpha 版本必须写全版本号 —— 别指望 latest 能解析到它们（本次恰好 latest 就是
 # rc.1，但那只是"这一段时间"的状态，下次上游前进后 latest 就会指向别处）。
 #
-# 【为什么是 0.2.2-rc.1】（本次是**同数字段换线：alpha → rc，稳定性回正**）
-#   上一轮（0.2.2-alpha.2）我们在 alpha 线，当时的无奈是因为 0.2.2 数字段**还没有 rc**；
-#   现在上游发布了 0.2.2-rc.1，于是**回到 rc 线**。所以：
-#   · **稳定性回正**（alpha → rc）：这正是上一轮承诺的"等 rc 出来就回到更稳的线"。
-#   · **同时是双向前进**：既跨过了 alpha.3（`0.2.2-rc.1` > `0.2.2-alpha.3`，同数字段下
-#     rc 高于 alpha），发布时间也更晚（rc.1 = 11-04，alpha.3 = 11-03）。
-#   · **本次锁定的版本就是 `latest`**（也是 `next`）—— 项目历史上第一次锁到稳定推荐版本身。
-#     但这不影响"必须写全版本号"的结论：latest 是会漂移的别名，不是一个稳定的坐标。
+# 【为什么是 0.2.2-rc.3】（本次是**同数字段内的 rc 线前进**：rc.1 → rc.3）
+#   上一轮锁的是 0.2.2-rc.1；本轮跟随到 rc 线的最新版 rc.3（中间跨过 rc.2）。
+#   · **稳定性线不变**（仍在 rc 线），只是同线向前推进两个补丁版本。
+#   · 注意 dist-tag 已变：latest 仍停在 **rc.1**，而 rc.3 挂在 **next** 下。也就是说
+#     本镜像现在**领先 `latest` 两个版本** —— 上一轮那个"锁定版本 = latest"只是当时的巧合。
+#     这恰好印证了"必须钉死显式版本号、别依赖 tag 别名"。
 #   · **--public-url 仍在**：chunk 名与历次**完全相同**（public-url-D_dMK-yI.js），
 #     parsePublicUrl 仍在 dsh-web-app 的 startup.js / index.js；真实启动实测打印带 token 的
 #     地址。跟随新版**不会失去**本项目长期依赖的那项能力。
-#   逐契约核对结论（完整分析见 docs/analysis/2026-11-09-dsh-0.2.2-rc.1-适配分析.md）：
+#   逐契约核对结论（完整分析见 docs/analysis/2026-11-16-dsh-0.2.2-rc.3-适配分析.md）：
 #   · **无会话/设置数据换代**：SESSION_FORMAT_VERSION 两版均为 4、迁移包集合完全相同
 #     （catalog + v0-to-v1..v3-to-v4，无新增）→ 本次**无需备份会话**。
-#   · hmr 条目**逐字节相同**；nodeLinker: hoisted 未变；CLI 透传未变；--patch 叠加层语义
-#     未变（对既有 settings 行实测生效）；--dump-* 选项均在。
-#   · RETIRED_BUNDLES **内容不变**（仍只含 @deepseek-ai/dsh-experimental-schedule-bundle，
-#     本项目零引用）。注意它自 0.2.2-alpha.2 起已**迁到新包** dsh-official-bundles（由
-#     dsh-app-boot 再导出），核对时别因为"在旧位置 grep 不到"就误判成被删除。
-#   · 包级 **+3 / −3**（331 → 331，总数不变但内容是流动的）：
-#     - 新增 dsh-client-ui-context-menu、dsh-client-ui-file-actions（**这两个会真正装载**，
-#       进 dsh-web-app）、dsh-fs-patch（**不装载**，base/web-app 的 patch 里都没有它）；
-#     - 移除 dsh-computer-use / dsh-cua / dsh-cua-bundle —— 上游**撤掉了整个 cua 子系统**。
-#       这三个包**此前也没被本项目装载**（不在这两个 bundle 的 patch 内），故移除对本项目
-#       **零影响**。这一条值得记住：包级"移除"不等于"能力移除"，要看它是否曾被装载。
-#   · ✅ **渲染配置差异仅 13 行**（1230 → 1243 行，条目 300 → 302），全部可解释：
-#     - 新增 2 个条目：`ui-context-menu`、`ui-file-actions`；
-#     - 既有 `tool-fs` 条目新增 `applyPatch: false`（共 4 处：顶层 1 + 嵌套 3），
-#       是上游新引入的**默认关闭**配置项（`dsh-fs-patch` 的能力开关，本项目未启用）；
-#     - **零移除、零其它修改**。本项目对以上引用数均为 0，无破坏性影响。
-#   · **GUI 认证行为与上一轮一致**（无新增变化）：裸访问 401、带 token 303 下发 cookie、
-#     之后 cookie 访问 200、未认证 API 403 —— 四项与 alpha.2 实测完全相同。上一轮已在
-#     CHANGELOG 与 docs/03 里向用户说明过该加固，本轮**不需要再变更用户指引**。
-#     健康检查仍不受影响（HEALTHCHECK 是 TCP 探测；probe-ready.js 的 L2 明确"任何状态码都算
-#     HTTP 栈就绪"，L4 的四个失败标志都不匹配 401 正文）。
+#   · hmr 条目**逐字节相同**；nodeLinker: hoisted 未变；--patch 叠加层语义未变（对既有
+#     settings 行实测生效）；CLI 透传（allowUnknownOption/passThroughOptions）仍在、
+#     --dump-config 实测可用。
+#     ⚠ 核对陷阱：rc.3 把 dsh/lib/bin.js **拆成了带哈希的分块文件**（bin-CwxESKe-.js、
+#     dump-config-*.js 等），在旧路径 bin.js 里 grep CLI 透传/--dump 会**匹配不到**，
+#     看起来像"能力被移除"——实际是文件拆分。改用功能实测即可确认仍在。
+#   · ⚠ **RETIRED_BUNDLES 新增一项**：除 schedule-bundle 外，多了
+#     `@deepseek-ai/dsh-experimental-agent-team-profile`（上游把该实验 bundle 标记为退役，
+#     会自动从 profile 的 bundle 列表里剔除）。本项目 profile 只列 dsh-base + dsh-web-app，
+#     **未引用它**，故零影响。
+#   · 包级 **+14 / −7**（331 → 338）。**14 个新增包里只有 6 个会真正装载**：
+#     dsh-agent-team、dsh-tool-agent-team（进 dsh-base）、dsh-client-ui-account-notifications、
+#     dsh-client-ui-agent-team、dsh-mcp-manager、dsh-office-kit（进 dsh-web-app）。
+#     其余 8 个不装载，其中包括**又回来的** dsh-computer-use / dsh-cua / dsh-cua-bundle
+#     （上一轮 rc.1 刚移除、这轮 rc.3 又加回，但始终不在本项目的 bundle patch 里）。
+#   · ⚠ **移除的 7 个包里有 3 个曾被实际装载**，与上一轮（移除的都没装载过）不同，逐个查了：
+#     - `dsh-office-to-pdf`（原进 web-app）→ 能力并入 `dsh-office-kit`，后者描述为
+#       "Office rendering, conversion, and recalculation"，是**能力超集**，lib 内有 pdf 实现；
+#     - `dsh-api-account-controller`（原进 web-app，"Expose safe account operations over
+#       authenticated Remote"）→ 并入 `dsh-deepseek-account`（lib 内有 controller 实现）；
+#     - `dsh-deepseek-account-platform`（原进 dsh-base）→ 同样并入 `dsh-deepseek-account`
+#       （该包两版都存在，不是新增）。
+#     结论：**三个都是合并重构，不是能力丢失**。另外 4 个 `experimental-agent-team*`
+#     原本就没装载，本轮以 `dsh-agent-team` 等正式名转正。
+#   · ✅ **渲染配置差异 63 行**（1243 → 1288 行，条目 302 → 310），全部可解释：
+#     新增 10 个条目（上述 6 个装载包，其中 tool-office 出现 2 处）+ 移除 2 个
+#     （account-controller、office-to-pdf，均已并包）—— 净 +8；
+#     另有 searchProvider 由 deepseek-official 改为 deepseek-search-api、
+#     agent-preset 增加 customSkillDirs 等上游配置调整。本项目对以上引用数均为 0。
+#   · **GUI 认证行为与历次一致**（无新增变化）：裸访问 401、带 token 303 下发 cookie、
+#     之后 cookie 访问 200、未认证 API 403 —— 四项与 rc.1 实测完全相同。用户访问指引
+#     **不需要变更**。健康检查仍不受影响（HEALTHCHECK 是 TCP 探测；probe-ready.js 的 L2
+#     明确"任何状态码都算 HTTP 栈就绪"，L4 四个失败标志都不匹配 401 正文）。
 #   · ✅ **本项目核心耦合点（认证插件注入链路）已端到端实测**：profile bundles 加
 #     @xgone/dsh-remote + cordis.patch.yml 写 `- id: remote` 覆盖 config，插件段与
-#     alpha.4 / rc.2 / alpha.2 **四方逐字节一致**（8 行 / 163 字节）；真实启动带 cookie 访问
-#     200、未认证 API 仍在远端插件门控下 403。
+#     alpha.4 / rc.2 / alpha.2 / rc.1 **五方逐字节一致**（8 行 / 163 字节）；真实启动带
+#     cookie 访问 200、未认证 API 仍在远端插件门控下 403。
 #   ⚠ 注意 DSH_PUBLIC_URL_MIN_VERSION 是**能力起点**、与本 ARG 语义不同，**不跟着升**
 #     （见 scripts/librescue.sh 的说明）。
-ARG DSH_VERSION=0.2.2-rc.1
+ARG DSH_VERSION=0.2.2-rc.3
 # pnpm 同样钉死：latest 会在不同时间解析到不同版本（实测 2026-09-22 为 12.5.1），
 # 与 DSH_VERSION 的漂移风险同理 —— 同一份 Dockerfile 不该构建出不同的 pnpm。
 # 要升级改这一处，或构建时传 --build-arg PNPM_VERSION=<版本>。
